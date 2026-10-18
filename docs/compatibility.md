@@ -67,25 +67,71 @@ after an `@`. A caller decides from capabilities, not from version numbers,
 whether a feature is there, and says in a sentence which partner to update
 when one it needs is missing.
 
-The name says what is offered, not who offers it: the product answering `GET
-/api/v1/meta` is the one that offers it. `remote-links@1` from Armature means
-remote links on issues, from Stator remote links on pages.
+### Names
 
-Tools report only names from this table. A new name is added here, by pull
-request, before any tool reports it. A breaking change to what a capability
-promises gets a new number (`remote-links@2`); the tool reports the old one
-alongside for at least one suite release, as long as it still honours it.
+- A name is lowercase words joined by hyphens, then `@` and an integer:
+  `page-remote-links@1`. No dots, no product names.
+- One name means one promise, whoever offers it. `webhooks@1` from Stator
+  promises the same routes, envelope and signing as `webhooks@1` from
+  Armature; a feature that only one tool has is named after what it works on
+  (`page-remote-links@1`, not a second `remote-links@1` on Stator).
+- Tools report only names from the table below. A new name is added here, by
+  pull request, before any tool reports it, and the tool's own list of
+  promises (`capabilities.go`) says the same as the row here.
+- A breaking change to what a capability promises gets a new number
+  (`webhooks@2`). The tool reports the old one alongside for at least one
+  suite release, as long as it still honours it.
+
+Paths are below `/api/v1`. Every call is made with a session or a personal
+access token of the person it acts for; no capability needs a shared service
+account.
+
+### Offered by Armature
+
+| Capability | Promises | Relied on by |
+|---|---|---|
+| `issue-embed@1` | An issue read by its key, and issues found by NQL or by the words typed so far: `GET /issues/{issueKey}`, `GET /issues`, `GET /issues/suggest`. | Stator, Exciter |
+| `remote-links@1` | The pages elsewhere that are about an issue: listed, put on by url, retitled by putting the same url again, taken off (`GET` and `POST /issues/{issueKey}/remote-links`, `DELETE /issues/{issueKey}/remote-links/{remoteLinkID}`), and announced as `issue.remote_link.added` and `issue.remote_link.removed`. | Stator, Exciter |
+| `remote-link-relations@1` | A remote link says whether it is a page or a requirement, on the link, on the request that puts it and in both topics; one sent without it is a page. | Exciter |
+| `reports@1` | The report kinds a project has, one report computed now, and a dashboard shared by a link read without an account: `GET /projects/{projectKey}/report-kinds`, `GET /projects/{projectKey}/reports/{kind}`, `GET /shared/{token}`, `GET /shared/{token}/widgets/{widgetID}`. | Stator |
+| `plan@1` | A project laid out against a calendar, its people's hours against the work, and the share of each person's week, read and set: `GET /projects/{projectKey}/plan`, `/resources`, `/allocations`, `PUT /projects/{projectKey}/allocations/{userID}`. | Stator |
+| `calendar@1` | Everything a project has dated in a month: issues, sprints, milestones, versions, holidays and who is away: `GET /projects/{projectKey}/calendar`. | Stator |
+
+### Offered by Stator
+
+| Capability | Promises | Relied on by |
+|---|---|---|
+| `page-links@1` | Each Armature issue a published page names as a chip or an issue block carries the page's remote link, put on and taken off as the page changes, and the page says how each stands: `GET /pages/{pageID}/armature-links`. | none yet; Stator's own links on Armature issues |
+| `page-remote-links@1` | Another tool puts links to its objects on a page as somebody who may edit it, a link with the same url replacing the one there (`GET` and `POST /pages/{pageID}/remote-links`, `DELETE /pages/{pageID}/remote-links/{linkID}`), and hears through webhooks when somebody takes one off. | Exciter |
+| `webhook-receiver@1` | Armature's signed deliveries of envelope version 1 received at `POST /armature/webhook` for the issue topics, so pages show a change to an issue at once. | Dynamo, which registers the endpoint in Armature |
+
+### Offered by Exciter
+
+| Capability | Promises | Relied on by |
+|---|---|---|
+| `requirement-embed@1` | A requirement read by its key, and requirements found by their words or the first letters of their titles: `GET /requirements/{reqKey}`, `GET /search`, `GET /search/quick`. | none yet |
+| `requirement-list@1` | A project's requirements narrowed and ordered by a query, a window at a time, and what may come next at the caret of such a query: `GET /projects/{projectKey}/requirements`, `GET /projects/{projectKey}/requirements/suggest`. | none yet |
+| `trace-links@1` | The trace links between requirements: listed from either end, made with a link type, and taken off: `GET /link-types`, `GET` and `POST /requirements/{reqKey}/links`, `DELETE /links/{linkID}`. | none yet |
+| `specifications@1` | The projects a caller may read, and each one's requirements as the outline of its specification: `GET /projects`, `GET /projects/{projectKey}`, `GET /projects/{projectKey}/tree`. | none yet |
+| `mcp@1` | An assistant works with requirements over MCP 2025-11-25 or 2025-06-18 as the person whose token it holds: `POST /mcp`. | assistants |
+
+### Offered by more than one tool
 
 | Capability | Offered by | Promises | Relied on by |
 |---|---|---|---|
-| `remote-links@1` | Armature | `GET`, `POST` and `DELETE /api/v1/issues/{key}/remote-links[/{id}]`. `POST` takes `{url, title, source, iconUrl?}` and upserts by `url` (201 created, 200 retitled); a link answers `id, url, title, source, iconUrl, createdBy, createdAt, updatedAt`. Links show on the issue. | Stator, Exciter |
-| `remote-links@1` | Stator | The same three routes and shapes on `/api/v1/pages/{pageID}/remote-links`; links show on the page. Not built yet (Cloudster1/Exciter#42 asks for it). | Exciter |
-| `webhooks@1` | Armature | Endpoints registered per organization through `/api/v1/webhooks` with a URL and topics; deliveries are `POST` with the versioned envelope above, signed as `X-Armature-Signature-256: sha256=<hex HMAC-SHA256 of the body>`, with `X-Armature-Event`, `X-Armature-Delivery`, `X-Armature-Timestamp` and `X-Armature-Signature-Timestamped-256` over `{timestamp}.{body}`; secrets start with `armature_whs_`; failed deliveries are retried. Topics include `issue.created`, `issue.updated`, `issue.transitioned`, `issue.deleted`, `comment.added`, `issue.remote_link.added` and `issue.remote_link.removed`. | Stator, Exciter |
-| `issue-embed@1` | Armature | `GET /api/v1/issues/{key}`, `GET /api/v1/issues` with a query, `GET /api/v1/projects` and the issue types, readable with a member's personal access token, enough to show an issue's key, summary, status, type and assignee inside another tool; the browser link is `<base>/issues/{key}`. | Stator, Exciter |
-| `project-views@1` | Armature | `GET /api/v1/projects/{p}/calendar`, `/reports/...` and `/plan`, for the calendar, chart and roadmap a page shows. | Stator |
-| `theme-export@1` | Armature | `GET /api/v1/themes/active` and `GET /api/v1/themes/{id}/export` in a format the other tools can apply. | Stator, Exciter |
-| `page-links@1` | Stator | Pages can be found and read with a member's token (`GET /api/v1/pages/{id}`, a search by title), enough to show a page's title, space and link inside another tool. | Exciter |
-| `trace-links@1` | Exciter | A requirement's trace links to Armature issues and Stator pages can be read with a member's token, enough to show which requirements an issue or page traces to. | Stator, Armature |
+| `webhooks@1` | Armature, Stator, Exciter | Endpoints subscribed to topics, their deliveries, a redelivery, a test delivery and a new secret (`GET`, `POST /webhooks`, `PATCH`, `DELETE /webhooks/{id}`, `GET /webhooks/{id}/deliveries`, `POST /webhooks/{id}/deliveries/{deliveryID}/redeliver`, `POST /webhooks/{id}/test`, `POST /webhooks/{id}/rotate-secret`), each delivery the versioned envelope above, signed as `X-<Product>-Signature-256: sha256=<hex HMAC-SHA256 of the body>` with `X-<Product>-Event`, `X-<Product>-Delivery`, `X-<Product>-Timestamp` and `X-<Product>-Signature-Timestamped-256` over `{timestamp}.{body}`, and retried when it fails. | Stator, Exciter, Dynamo |
+| `webhooks@2` | Exciter | What `webhooks@1` promises, and an endpoint registered for envelope version 2 is posted a CloudEvent 1.0 in structured mode whose data is version 1's payload. | receivers that speak CloudEvents |
+| `theme-export@1` | Armature, Stator, Exciter | A theme exported as one `armature-theme/1` file with its pictures and fonts, and such a file imported as a theme of the caller's own: `GET /themes/{themeID}/export`, `POST /themes/import`. | Stator, Exciter (of Armature) |
+
+### Planned
+
+Reserved for features in the tools' open issues; no tool reports them yet.
+They are spelled here by the rule above, not as the issues first wrote them.
+
+| Capability | Offered by | Promises | Issue |
+|---|---|---|---|
+| `partner-tokens@1` | Armature | OAuth 2.0 authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; with the `dynamo` realm, Keycloak token exchange instead of the click. Discovery at `/.well-known/oauth-authorization-server`. | Cloudster1/Armature#280 (as `oauth.partner-tokens@1`) |
+| `partner-webhooks@1` | Armature | A partner creates, rotates and changes its own webhook endpoint once an administrator agrees, and never touches others. | Cloudster1/Armature#281 (as `webhooks.partner@1`) |
 
 Every tool's personal access tokens are sent as `Authorization: Bearer
 <token>`; capabilities never require a shared service account.
@@ -117,13 +163,12 @@ Every tool's personal access tokens are sent as `Authorization: Bearer
 
 ## Where each tool stands
 
-What is still missing for these rules, tracked in the tools:
+All three answer `GET /api/v1/meta` with the capabilities above, send the
+versioned envelope, use the `dynamo` realm and release by tag to GHCR with a
+chart and a dispatch to Dynamo. None has tagged a release yet. What is left
+for these rules:
 
-- Stator: `GET /api/v1/meta` is there with an empty capability list
-  (praetorianer777/Stator#409); no release tagged yet.
-- Exciter: `GET /api/v1/meta` lacks `apiVersion` and `capabilities`
-  (Cloudster1/Exciter#99, #100); release by tag and the chart are open (#101,
-  #104); it checks Stator for the name `page.remote-links`, which becomes
-  `remote-links@1` under this table.
-- Armature: no `GET /api/v1/meta`, no versioned webhook envelope, no published
-  images or chart and no release yet.
+- Exciter checks Stator for `page-remote-links` under any version; it should
+  check `page-remote-links@1`.
+- Armature#280 and #281 still name their capabilities `oauth.partner-tokens@1`
+  and `webhooks.partner@1`; they report the names under Planned instead.
