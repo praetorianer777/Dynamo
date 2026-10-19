@@ -70,7 +70,8 @@ when one it needs is missing.
 ### Names
 
 - A name is lowercase words joined by hyphens, then `@` and an integer:
-  `page-remote-links@1`. No dots, no product names.
+  `page-remote-links@1`. A dot groups names of one area, as in
+  `oauth.partner-tokens@1` and `webhooks.partner@1`. No product names.
 - One name means one promise, whoever offers it. `webhooks@1` from Stator
   promises the same routes, envelope and signing as `webhooks@1` from
   Armature; a feature that only one tool has is named after what it works on
@@ -123,15 +124,18 @@ account.
 | `webhooks@2` | Exciter | What `webhooks@1` promises, and an endpoint registered for envelope version 2 is posted a CloudEvent 1.0 in structured mode whose data is version 1's payload. | receivers that speak CloudEvents |
 | `theme-export@1` | Armature, Stator, Exciter | A theme exported as one `armature-theme/1` file with its pictures and fonts, and such a file imported as a theme of the caller's own: `GET /themes/{themeID}/export`, `POST /themes/import`. | Stator, Exciter (of Armature) |
 
-### Planned
+### Partner access
 
-Reserved for features in the tools' open issues; no tool reports them yet.
-They are spelled here by the rule above, not as the issues first wrote them.
+How a partner acts for a person without the person pasting a token. A tool
+that offers one of these is an OAuth 2.0 authorization server for its
+partners, with discovery at `/.well-known/oauth-authorization-server` and
+partner apps registered by an administrator.
 
-| Capability | Offered by | Promises | Issue |
+| Capability | Offered by | Promises | Relied on by |
 |---|---|---|---|
-| `partner-tokens@1` | Armature | OAuth 2.0 authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; with the `dynamo` realm, Keycloak token exchange instead of the click. Discovery at `/.well-known/oauth-authorization-server`. | Cloudster1/Armature#280 (as `oauth.partner-tokens@1`) |
-| `partner-webhooks@1` | Armature | A partner creates, rotates and changes its own webhook endpoint once an administrator agrees, and never touches others. | Cloudster1/Armature#281 (as `webhooks.partner@1`) |
+| `oauth.partner-tokens@1` | Armature | Authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; the token never exceeds the person's rights and shows in their list as a connected app. | Stator |
+| `oauth.token-exchange@1` | Armature, Stator, Exciter (planned: Cloudster1/Armature#302, praetorianer777/Stator#461, Cloudster1/Exciter#273) | `POST /api/v1/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): `subject_token` is an access token of the shared Keycloak realm whose `azp` is the partner app's Keycloak client id and whose `aud` holds the offering tool's client; the app authenticates with its own credentials; the answer is an access and a refresh token within the person's rights, with no consent page. A partner uses it at the person's sign-in, so nobody connects by hand. | Stator, Exciter (planned: praetorianer777/Stator#430, #462, Cloudster1/Exciter#274) |
+| `webhooks.partner@1` | Armature | A partner creates, rotates and changes its own webhook endpoint once an administrator agrees, and never touches others. | Stator |
 
 Every tool's personal access tokens are sent as `Authorization: Bearer
 <token>`; capabilities never require a shared service account.
@@ -170,5 +174,5 @@ for these rules:
 
 - Exciter checks Stator for `page-remote-links` under any version; it should
   check `page-remote-links@1`.
-- Armature#280 and #281 still name their capabilities `oauth.partner-tokens@1`
-  and `webhooks.partner@1`; they report the names under Planned instead.
+- Nobody connects people across tools at sign-in yet; the issues are listed
+  with `oauth.token-exchange@1` above.
