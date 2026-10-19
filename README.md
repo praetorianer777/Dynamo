@@ -26,6 +26,10 @@ Open any of the three and sign in with single sign-on as `alice` /
 member). `make up` prints the addresses; they and the versions are also in
 `.cache/stack.env`.
 
+To sign in through a Keycloak or realm of your own, set `OIDC_ISSUER` and
+the tools' clients; `docs/keycloak.md` lists the settings and what the realm
+must hold.
+
 ## What dynamo-connect does
 
 It runs once after the three answer, through their admin APIs only, and
@@ -33,9 +37,10 @@ changes only what differs, so it can run again at any time (`make connect`):
 
 1. Checks that each tool answers `GET /api/v1/meta` as itself, at the pinned
    version.
-2. Sets Armature up with its owner if it has none yet, points its sign-in at
-   the realm and lets the members of `DYNAMO_MEMBERS` in. Stator and Exciter
-   get theirs from their own bootstrap settings.
+2. Sets Armature up with its owner if it has none yet, points every tool's
+   sign-in at the realm with that tool's client, and lets the members of
+   `DYNAMO_MEMBERS` into Armature; Stator and Exciter take them from their
+   own bootstrap settings.
 3. Connects Stator and Exciter to Armature and to each other, makes each
    sender's webhook for the topics its receiver asks for, pointed at the
    receiver's api inside the network, and stores the secret in the receiver.

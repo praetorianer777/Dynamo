@@ -19,13 +19,14 @@ type tool struct {
 	api, url        string
 	version         string
 	email, password string
+	// The tool's client in the realm, which its sign-in uses.
+	clientID, clientSecret string
 }
 
 type config struct {
 	stator, armature, exciter tool
 	issuer                    string
-	armatureClientID          string
-	armatureClientSecret      string
+	groupsClaim               string
 	members                   []member
 	expectUnchanged           bool
 	waitFor                   time.Duration
@@ -71,23 +72,24 @@ func load(getenv func(string) string) (config, error) {
 	}
 	read := func(product, prefix string) tool {
 		return tool{
-			product:  product,
-			api:      need(prefix + "_API"),
-			url:      need(prefix + "_URL"),
-			version:  getenv(prefix + "_VERSION"),
-			email:    need(prefix + "_ADMIN_EMAIL"),
-			password: need(prefix + "_ADMIN_PASSWORD"),
+			product:      product,
+			api:          need(prefix + "_API"),
+			url:          need(prefix + "_URL"),
+			version:      getenv(prefix + "_VERSION"),
+			email:        need(prefix + "_ADMIN_EMAIL"),
+			password:     need(prefix + "_ADMIN_PASSWORD"),
+			clientID:     need(prefix + "_OIDC_CLIENT_ID"),
+			clientSecret: need(prefix + "_OIDC_CLIENT_SECRET"),
 		}
 	}
 	cfg := config{
-		stator:               read("stator", "DYNAMO_STATOR"),
-		armature:             read("armature", "DYNAMO_ARMATURE"),
-		exciter:              read("exciter", "DYNAMO_EXCITER"),
-		issuer:               need("DYNAMO_OIDC_ISSUER"),
-		armatureClientID:     need("DYNAMO_ARMATURE_OIDC_CLIENT_ID"),
-		armatureClientSecret: need("DYNAMO_ARMATURE_OIDC_CLIENT_SECRET"),
-		expectUnchanged:      getenv("DYNAMO_EXPECT_UNCHANGED") == "1",
-		waitFor:              defaultWait,
+		stator:          read("stator", "DYNAMO_STATOR"),
+		armature:        read("armature", "DYNAMO_ARMATURE"),
+		exciter:         read("exciter", "DYNAMO_EXCITER"),
+		issuer:          need("DYNAMO_OIDC_ISSUER"),
+		groupsClaim:     getenv("DYNAMO_OIDC_GROUPS_CLAIM"),
+		expectUnchanged: getenv("DYNAMO_EXPECT_UNCHANGED") == "1",
+		waitFor:         defaultWait,
 	}
 	if len(missing) > 0 {
 		return cfg, fmt.Errorf("set %s", strings.Join(missing, ", "))
@@ -98,6 +100,9 @@ func load(getenv func(string) string) (config, error) {
 			return cfg, fmt.Errorf("DYNAMO_WAIT is a duration such as 5m, not %q", w)
 		}
 		cfg.waitFor = d
+	}
+	if cfg.groupsClaim == "" {
+		cfg.groupsClaim = "groups"
 	}
 	members, err := parseMembers(getenv("DYNAMO_MEMBERS"))
 	if err != nil {

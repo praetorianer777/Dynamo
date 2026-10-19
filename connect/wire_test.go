@@ -84,7 +84,7 @@ func (f *fakeTool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		answer(200, map[string]any{"provider": f.provider})
 	case route == "PUT /oidc-provider":
-		f.provider = &oidcProvider{Issuer: body["issuer"].(string), ClientID: body["clientId"].(string), Enabled: true}
+		f.provider = &oidcProvider{Issuer: body["issuer"].(string), ClientID: body["clientId"].(string), GroupsClaim: body["groupsClaim"].(string), Enabled: true}
 		answer(200, map[string]any{"provider": f.provider})
 	case route == "POST /users":
 		email := body["email"].(string)
@@ -136,11 +136,12 @@ func toStrings(v any) []string {
 func testConfig(stator, armature, exciter *httptest.Server, fs map[string]*fakeTool) config {
 	at := func(product string, srv *httptest.Server) tool {
 		f := fs[product]
-		return tool{product: product, api: srv.URL, url: "http://localhost/" + product, version: f.version, email: f.email, password: f.password}
+		return tool{product: product, api: srv.URL, url: "http://localhost/" + product, version: f.version, email: f.email, password: f.password,
+			clientID: product + "-client", clientSecret: "s"}
 	}
 	return config{
 		stator: at("stator", stator), armature: at("armature", armature), exciter: at("exciter", exciter),
-		issuer: "http://localhost:8180/realms/dynamo", armatureClientID: "armature", armatureClientSecret: "s",
+		issuer: "http://localhost:8180/realms/dynamo", groupsClaim: "groups",
 		members: []member{{"alice@suite.test", "admin"}, {"bob@suite.test", "member"}},
 		waitFor: time.Second,
 	}
@@ -167,8 +168,13 @@ func TestConnectsAllThreeAndASecondRunChangesNothing(t *testing.T) {
 	if len(changes) == 0 {
 		t.Fatal("the first run changed nothing")
 	}
-	if !fs["armature"].signedUp || fs["armature"].provider == nil || !fs["armature"].users["bob@suite.test"] {
+	if !fs["armature"].signedUp || !fs["armature"].users["bob@suite.test"] {
 		t.Fatalf("Armature was not set up: %+v", fs["armature"])
+	}
+	for product, f := range fs {
+		if f.provider == nil || f.provider.Issuer != cfg.issuer || f.provider.ClientID != product+"-client" {
+			t.Errorf("%s does not sign in through the realm with its own client: %+v", product, f.provider)
+		}
 	}
 	for receiver, senders := range map[string][]string{"stator": {"armature", "exciter"}, "exciter": {"armature", "stator"}} {
 		for _, sender := range senders {
@@ -216,6 +222,23 @@ func TestMembersAreEmailAndRole(t *testing.T) {
 		if _, err := parseMembers(bad); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}
+	}
+}
+
+func TestAnotherRealmReachesARunningInstallation(t *testing.T) {
+	cfg, fs := startFakes(t)
+	ctx := context.Background()
+	if _, err := run(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.issuer = "https://sso.example.com/realms/acme"
+	cfg.stator.clientID = "wiki"
+	changes, err := run(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 || fs["stator"].provider.Issuer != cfg.issuer || fs["stator"].provider.ClientID != "wiki" {
+		t.Fatalf("want the three sign-ins moved to the new realm, got %v and %+v", changes, fs["stator"].provider)
 	}
 }
 

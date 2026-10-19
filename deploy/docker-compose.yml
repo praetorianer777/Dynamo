@@ -39,13 +39,15 @@ x-app-health: &app-health
   start_period: 30s
   start_interval: 1s
 
-# The browser reaches Keycloak at localhost; tokens name that issuer, so every
-# tool asks for it there while connecting to keycloak:8080 inside the network.
-x-issuer: &issuer http://localhost:${KEYCLOAK_PORT}/realms/dynamo
+# Sign-in goes to OIDC_ISSUER, the bundled Keycloak's realm dynamo unless
+# mk/stack.mk is given another. Tokens name the issuer as browsers reach it;
+# OIDC_BACKCHANNEL, when set, is where the tools reach that origin instead.
 
 services:
+  # Only when no issuer of one's own is set: mk/stack.mk turns the profile on.
   keycloak:
     image: quay.io/keycloak/keycloak:26.2
+    profiles: [keycloak]
     command: ["start-dev", "--import-realm", "--http-port=8080"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
@@ -166,9 +168,6 @@ services:
       STATOR_BOOTSTRAP_ORG_NAME: Stator
       STATOR_BOOTSTRAP_ADMIN_EMAIL: ${STATOR_ADMIN_EMAIL}
       STATOR_BOOTSTRAP_ADMIN_PASSWORD: ${STATOR_ADMIN_PASSWORD}
-      STATOR_BOOTSTRAP_OIDC_ISSUER: *issuer
-      STATOR_BOOTSTRAP_OIDC_CLIENT_ID: stator
-      STATOR_BOOTSTRAP_OIDC_CLIENT_SECRET: stator-dev-secret
       STATOR_BOOTSTRAP_MEMBERS: ${DYNAMO_MEMBERS}
     networks: [stator]
     restart: "no"
@@ -180,7 +179,7 @@ services:
       stator-valkey: {condition: service_healthy}
       stator-converter: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
-      keycloak: {condition: service_healthy}
+      keycloak: {condition: service_healthy, required: false}
       stator-seed: {condition: service_completed_successfully}
     environment: &stator-env
       STATOR_ENV: development
@@ -198,8 +197,8 @@ services:
       STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
       STATOR_SMTP_ADDR: mailpit:1025
       STATOR_MAIL_FROM: Stator <no-reply@stator.test>
-      STATOR_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
-      STATOR_OUTBOUND_ALLOW: armature-api,exciter-api
+      STATOR_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
+      STATOR_OUTBOUND_ALLOW: armature-api,exciter-api,${OIDC_HOST}
       STATOR_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
       STATOR_EXCITER_BACKCHANNEL: http://localhost:${EXCITER_WEB_PORT}=http://exciter-api:8080
       # What Stator names as its receiver when Armature makes Stator's webhook.
@@ -298,7 +297,7 @@ services:
     depends_on:
       armature-valkey: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
-      keycloak: {condition: service_healthy}
+      keycloak: {condition: service_healthy, required: false}
       armature-migrate: {condition: service_completed_successfully}
     environment: &armature-env
       ARMATURE_ENV: development
@@ -314,15 +313,15 @@ services:
       ARMATURE_RENDER_URL: http://render:8090
       ARMATURE_APP_URL: http://localhost:${ARMATURE_WEB_PORT}
       ARMATURE_OIDC_REDIRECT_URL: http://localhost:${ARMATURE_WEB_PORT}/api/v1/auth/oidc/callback
-      ARMATURE_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
+      ARMATURE_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
       ARMATURE_SECRET_KEY: ${ARMATURE_SECRET_KEY}
       ARMATURE_SMTP_ADDR: mailpit:1025
       ARMATURE_MAIL_FROM: Armature <no-reply@armature.test>
       # The first account sets the installation up; dynamo-connect makes it.
       ARMATURE_SIGNUP: first
-      # The webhooks go to the partners' apis and discovery to Keycloak, all
-      # on private addresses the guard refuses unless they are named.
-      ARMATURE_OUTBOUND_ALLOW: stator-api,exciter-api,keycloak
+      # The webhooks go to the partners' apis and discovery to Keycloak,
+      # private addresses the guard refuses unless they are named.
+      ARMATURE_OUTBOUND_ALLOW: stator-api,exciter-api,${OIDC_HOST}
     networks:
       armature:
         aliases: [api]
@@ -422,9 +421,6 @@ services:
       EXCITER_SECRET_KEY: ${EXCITER_SECRET_KEY}
       EXCITER_BOOTSTRAP_ADMIN_EMAIL: ${EXCITER_ADMIN_EMAIL}
       EXCITER_BOOTSTRAP_ADMIN_PASSWORD: ${EXCITER_ADMIN_PASSWORD}
-      EXCITER_BOOTSTRAP_OIDC_ISSUER: *issuer
-      EXCITER_BOOTSTRAP_OIDC_CLIENT_ID: exciter
-      EXCITER_BOOTSTRAP_OIDC_CLIENT_SECRET: exciter-dev-secret
       EXCITER_BOOTSTRAP_MEMBERS: ${DYNAMO_MEMBERS}
     networks: [exciter]
     restart: "no"
@@ -435,7 +431,7 @@ services:
     depends_on:
       exciter-valkey: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
-      keycloak: {condition: service_healthy}
+      keycloak: {condition: service_healthy, required: false}
       exciter-seed: {condition: service_completed_successfully}
     environment: &exciter-env
       EXCITER_ENV: development
@@ -454,8 +450,8 @@ services:
       EXCITER_SMTP_ADDR: mailpit:1025
       EXCITER_MAIL_FROM: Exciter <no-reply@exciter.test>
       EXCITER_TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
-      EXCITER_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
-      EXCITER_OUTBOUND_ALLOW: armature-api,stator-api
+      EXCITER_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
+      EXCITER_OUTBOUND_ALLOW: armature-api,stator-api,${OIDC_HOST}
       EXCITER_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
       EXCITER_STATOR_BACKCHANNEL: http://localhost:${STATOR_WEB_PORT}=http://stator-api:8080
     networks:
@@ -533,9 +529,14 @@ services:
       DYNAMO_ARMATURE_ADMIN_PASSWORD: ${ARMATURE_ADMIN_PASSWORD}
       DYNAMO_EXCITER_ADMIN_EMAIL: ${EXCITER_ADMIN_EMAIL}
       DYNAMO_EXCITER_ADMIN_PASSWORD: ${EXCITER_ADMIN_PASSWORD}
-      DYNAMO_OIDC_ISSUER: *issuer
-      DYNAMO_ARMATURE_OIDC_CLIENT_ID: armature
-      DYNAMO_ARMATURE_OIDC_CLIENT_SECRET: armature-dev-secret
+      DYNAMO_OIDC_ISSUER: ${OIDC_ISSUER}
+      DYNAMO_OIDC_GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM}
+      DYNAMO_STATOR_OIDC_CLIENT_ID: ${STATOR_OIDC_CLIENT_ID}
+      DYNAMO_STATOR_OIDC_CLIENT_SECRET: ${STATOR_OIDC_CLIENT_SECRET}
+      DYNAMO_ARMATURE_OIDC_CLIENT_ID: ${ARMATURE_OIDC_CLIENT_ID}
+      DYNAMO_ARMATURE_OIDC_CLIENT_SECRET: ${ARMATURE_OIDC_CLIENT_SECRET}
+      DYNAMO_EXCITER_OIDC_CLIENT_ID: ${EXCITER_OIDC_CLIENT_ID}
+      DYNAMO_EXCITER_OIDC_CLIENT_SECRET: ${EXCITER_OIDC_CLIENT_SECRET}
       DYNAMO_MEMBERS: ${DYNAMO_MEMBERS}
     networks: [suite]
     restart: "no"

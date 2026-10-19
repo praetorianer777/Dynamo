@@ -36,9 +36,6 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	if err != nil {
 		return changes, err
 	}
-	if err := armatureSignIn(ctx, armature, cfg, note); err != nil {
-		return changes, err
-	}
 	if err := armatureMembers(ctx, armature, cfg.members, note); err != nil {
 		return changes, err
 	}
@@ -50,6 +47,14 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	exciter := newSession(cfg.exciter.product, cfg.exciter.api)
 	if err := exciter.signIn(ctx, cfg.exciter.email, cfg.exciter.password); err != nil {
 		return changes, err
+	}
+	for _, t := range []struct {
+		s *session
+		t tool
+	}{{stator, cfg.stator}, {armature, cfg.armature}, {exciter, cfg.exciter}} {
+		if err := ssoSignIn(ctx, t.s, t.t, cfg, note); err != nil {
+			return changes, err
+		}
 	}
 
 	// Each receiver connects to its sender, then the sender gets the receiver's
@@ -139,9 +144,9 @@ type oidcProvider struct {
 	CreateGroups bool   `json:"createGroups"`
 }
 
-// armatureSignIn points Armature's sign-in at the shared realm; Stator and
-// Exciter have theirs from their own bootstrap settings.
-func armatureSignIn(ctx context.Context, s *session, cfg config, note func(string, ...any)) error {
+// ssoSignIn points a tool's single sign-on at the realm with the tool's own
+// client, so a realm or client changed later reaches a running installation.
+func ssoSignIn(ctx context.Context, s *session, t tool, cfg config, note func(string, ...any)) error {
 	var current struct {
 		Provider *oidcProvider `json:"provider"`
 		oidcProvider
@@ -154,17 +159,17 @@ func armatureSignIn(ctx context.Context, s *session, cfg config, note func(strin
 	if current.Provider != nil {
 		have = *current.Provider
 	}
-	if have.Issuer == cfg.issuer && have.ClientID == cfg.armatureClientID && have.Enabled {
+	if have.Issuer == cfg.issuer && have.ClientID == t.clientID && have.Enabled && (have.GroupsClaim == "" || have.GroupsClaim == cfg.groupsClaim) {
 		return nil
 	}
 	body := map[string]any{
-		"issuer": cfg.issuer, "clientId": cfg.armatureClientID, "clientSecret": cfg.armatureClientSecret,
-		"groupsClaim": "groups", "createGroups": true, "enabled": true,
+		"issuer": cfg.issuer, "clientId": t.clientID, "clientSecret": t.clientSecret,
+		"groupsClaim": cfg.groupsClaim, "createGroups": true, "enabled": true,
 	}
 	if err := s.send(ctx, http.MethodPut, "/oidc-provider", body, nil); err != nil {
-		return fmt.Errorf("point Armature's sign-in at %s: %w", cfg.issuer, err)
+		return fmt.Errorf("point %s's sign-in at %s with client %s: %w", displayName[t.product], cfg.issuer, t.clientID, err)
 	}
-	note("Armature signs in through %s", cfg.issuer)
+	note("%s signs in through %s as client %s", displayName[t.product], cfg.issuer, t.clientID)
 	return nil
 }
 

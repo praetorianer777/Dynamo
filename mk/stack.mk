@@ -63,6 +63,32 @@ EXCITER_SECRET_KEY        ?= ZXhjaXRlci1kZXZlbG9wbWVudC1vbmx5LXNlY3JldC0=
 EXCITER_ADMIN_EMAIL       ?= admin@exciter.test
 EXCITER_ADMIN_PASSWORD    ?= exciter admin password
 
+# Sign-in. Left empty, OIDC_ISSUER is the bundled Keycloak's realm dynamo,
+# which the browser reaches on KEYCLOAK_PORT and the tools as keycloak:8080.
+# Set it to use a Keycloak (or another realm) of one's own: the bundled one
+# then stays off, and OIDC_BACKCHANNEL is "public-origin=reachable-origin"
+# only when the tools cannot reach the issuer at its public address.
+# docs/keycloak.md says what the realm must hold.
+OIDC_ISSUER ?=
+ifeq ($(strip $(OIDC_ISSUER)),)
+OIDC_ISSUER := http://localhost:$(KEYCLOAK_PORT)/realms/dynamo
+OIDC_BACKCHANNEL ?= http://localhost:$(KEYCLOAK_PORT)=http://keycloak:8080
+export COMPOSE_PROFILES := keycloak
+else
+OIDC_BACKCHANNEL ?=
+endif
+OIDC_GROUPS_CLAIM ?= groups
+STATOR_OIDC_CLIENT_ID       ?= stator
+STATOR_OIDC_CLIENT_SECRET   ?= stator-dev-secret
+ARMATURE_OIDC_CLIENT_ID     ?= armature
+ARMATURE_OIDC_CLIENT_SECRET ?= armature-dev-secret
+EXCITER_OIDC_CLIENT_ID      ?= exciter
+EXCITER_OIDC_CLIENT_SECRET  ?= exciter-dev-secret
+# The host the tools fetch the issuer's keys from, which their outbound
+# guards must let through when it is a private address.
+OIDC_REACH := $(if $(strip $(OIDC_BACKCHANNEL)),$(lastword $(subst =, ,$(OIDC_BACKCHANNEL))),$(OIDC_ISSUER))
+OIDC_HOST := $(shell printf '%s' '$(OIDC_REACH)' | sed -E 's,^[a-z]+://([^/:]+).*,\1,')
+
 # Who of the realm is let into all three before their first sign-in.
 DYNAMO_MEMBERS ?= alice@suite.test=admin,bob@suite.test=member
 
@@ -71,6 +97,8 @@ export COMPOSE_PROJECT_NAME := $(STACK_PROJECT)
 export KEYCLOAK_PORT STATOR_WEB_PORT ARMATURE_WEB_PORT EXCITER_WEB_PORT MAILPIT_PORT
 export STATOR_VERSION ARMATURE_VERSION EXCITER_VERSION STATOR_IMAGES ARMATURE_IMAGES EXCITER_IMAGES
 export KEYCLOAK_ADMIN KEYCLOAK_PASSWORD S3_ACCESS_KEY S3_SECRET_KEY DYNAMO_MEMBERS
+export OIDC_ISSUER OIDC_BACKCHANNEL OIDC_GROUPS_CLAIM OIDC_HOST
+export STATOR_OIDC_CLIENT_ID STATOR_OIDC_CLIENT_SECRET ARMATURE_OIDC_CLIENT_ID ARMATURE_OIDC_CLIENT_SECRET EXCITER_OIDC_CLIENT_ID EXCITER_OIDC_CLIENT_SECRET
 export STATOR_POSTGRES_PASSWORD STATOR_APP_DB_PASSWORD STATOR_ADMIN_DB_PASSWORD STATOR_VALKEY_PASSWORD STATOR_SECRET_KEY STATOR_ADMIN_EMAIL STATOR_ADMIN_PASSWORD
 export ARMATURE_POSTGRES_PASSWORD ARMATURE_APP_DB_PASSWORD ARMATURE_ADMIN_DB_PASSWORD ARMATURE_VALKEY_PASSWORD ARMATURE_SECRET_KEY ARMATURE_ADMIN_EMAIL ARMATURE_ADMIN_PASSWORD
 export EXCITER_POSTGRES_PASSWORD EXCITER_APP_DB_PASSWORD EXCITER_ADMIN_DB_PASSWORD EXCITER_VALKEY_PASSWORD EXCITER_SECRET_KEY EXCITER_ADMIN_EMAIL EXCITER_ADMIN_PASSWORD
@@ -84,7 +112,7 @@ stack-env:
 	@mkdir -p $(dir $(STACK_ENV_FILE))
 	@printf '%s\n' \
 		'COMPOSE_PROJECT_NAME=$(STACK_PROJECT)' \
-		'KEYCLOAK_URL=http://localhost:$(KEYCLOAK_PORT)' \
+		'OIDC_ISSUER=$(OIDC_ISSUER)' \
 		'STATOR_URL=http://localhost:$(STATOR_WEB_PORT)' \
 		'ARMATURE_URL=http://localhost:$(ARMATURE_WEB_PORT)' \
 		'EXCITER_URL=http://localhost:$(EXCITER_WEB_PORT)' \
@@ -103,7 +131,7 @@ up: stack-env ## Start all three at the pinned versions, connected to each other
 	@echo "Stator     http://localhost:$(STATOR_WEB_PORT)    $(STATOR_VERSION)"
 	@echo "Armature   http://localhost:$(ARMATURE_WEB_PORT)    $(ARMATURE_VERSION)"
 	@echo "Exciter    http://localhost:$(EXCITER_WEB_PORT)    $(EXCITER_VERSION)"
-	@echo "Keycloak   http://localhost:$(KEYCLOAK_PORT)    admin / admin; realm dynamo; alice / alice password"
+	@echo "Sign-in    $(OIDC_ISSUER)$(if $(filter keycloak,$(COMPOSE_PROFILES)),    admin / admin; alice / alice password)"
 	@echo "Mailpit    http://localhost:$(MAILPIT_PORT)"
 	@echo "Ports and versions are in $(STACK_ENV_FILE)."
 
