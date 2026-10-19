@@ -1,0 +1,550 @@
+# Stator, Armature and Exciter from the images versions.yaml pins, wired to
+# each other, the way an operator would run them. Nothing here is built except
+# dynamo-connect, Dynamo's own setup job. mk/stack.mk exports the versions, the
+# ports and the credentials; `make up` is the way in.
+#
+# Each tool's web image proxies to a service called "api" and its render
+# service to one called "web", so each tool keeps a network of its own where
+# its services answer by those names. Only the apis and workers join "suite",
+# under names no two tools share, beside Keycloak, the object store and mail.
+name: dynamo
+
+networks:
+  suite:
+  stator:
+  armature:
+  exciter:
+
+x-postgres: &postgres
+  image: postgres:18-alpine
+  command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "hot_standby=on", "-c", "track_commit_timestamp=on"]
+  healthcheck: &pg-health
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 30s
+    start_interval: 1s
+
+x-valkey-health: &valkey-health
+  interval: 5s
+  timeout: 3s
+  retries: 10
+  start_period: 20s
+  start_interval: 1s
+
+x-app-health: &app-health
+  interval: 10s
+  timeout: 3s
+  retries: 10
+  start_period: 30s
+  start_interval: 1s
+
+# The browser reaches Keycloak at localhost; tokens name that issuer, so every
+# tool asks for it there while connecting to keycloak:8080 inside the network.
+x-issuer: &issuer http://localhost:${KEYCLOAK_PORT}/realms/dynamo
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    # No volume: the realm is imported afresh on every start, as in the tools.
+    volumes:
+      - ./keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+    networks: [suite]
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT}:8080"
+    healthcheck:
+      # The image has no curl; bash opens a socket to the management port.
+      test:
+        - CMD-SHELL
+        - 'exec 3<>/dev/tcp/127.0.0.1/9000; printf ''GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n'' >&3; grep -q UP <&3'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+      start_interval: 2s
+
+  # One object store for all three; each tool keeps its own bucket, which its
+  # api makes when it is missing.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.46
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+    volumes:
+      - seaweedfs-data:/data
+    networks: [suite]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fsS http://localhost:9333/cluster/healthz >/dev/null && curl -s -o /dev/null http://localhost:8333/"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+      start_interval: 1s
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    networks: [suite]
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT}:8025"
+
+  # ── Stator ────────────────────────────────────────────────────────────
+
+  stator-postgres:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: stator
+      POSTGRES_PASSWORD: ${STATOR_POSTGRES_PASSWORD}
+      POSTGRES_DB: stator
+      APP_DB_PASSWORD: ${STATOR_APP_DB_PASSWORD}
+      ADMIN_DB_PASSWORD: ${STATOR_ADMIN_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - stator-postgres:/var/lib/postgresql/18/docker
+      - ./postgres/stator-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks:
+      stator:
+        aliases: [postgres-primary]
+    healthcheck:
+      <<: *pg-health
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U stator -d stator"]
+
+  stator-valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${STATOR_VALKEY_PASSWORD}
+    command: ["valkey-server", "--appendonly", "yes", "--requirepass", "${STATOR_VALKEY_PASSWORD}"]
+    volumes:
+      - stator-valkey:/data
+    networks:
+      stator:
+        aliases: [valkey]
+    healthcheck:
+      <<: *valkey-health
+      test: ["CMD-SHELL", "valkey-cli -a $$VALKEY_PASSWORD --no-auth-warning ping | grep -q PONG"]
+
+  stator-converter:
+    image: gotenberg/gotenberg:8.25.1
+    command: ["gotenberg", "--chromium-auto-start=false", "--chromium-disable-routes=true", "--libreoffice-auto-start=true", "--webhook-disable=true", "--prometheus-disable-collect=true", "--api-timeout=30s"]
+    networks:
+      stator:
+        aliases: [converter]
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:3000/health"]
+      start_period: 60s
+
+  stator-migrate:
+    image: ${STATOR_IMAGES}-backend:${STATOR_VERSION}
+    command: ["/app/migrate", "up"]
+    depends_on:
+      stator-postgres: {condition: service_healthy}
+    environment:
+      STATOR_DB_PRIMARY_URL: postgres://stator:${STATOR_POSTGRES_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
+    networks: [stator]
+    restart: "no"
+
+  stator-seed:
+    image: ${STATOR_IMAGES}-backend:${STATOR_VERSION}
+    command: ["/app/seed", "bootstrap"]
+    depends_on:
+      stator-migrate: {condition: service_completed_successfully}
+    environment:
+      STATOR_ENV: development
+      STATOR_DB_PRIMARY_URL: postgres://stator_app:${STATOR_APP_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
+      STATOR_DB_ADMIN_URL: postgres://stator_admin:${STATOR_ADMIN_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
+      STATOR_VALKEY_URL: redis://:${STATOR_VALKEY_PASSWORD}@valkey:6379/0
+      STATOR_APP_URL: http://localhost:${STATOR_WEB_PORT}
+      STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
+      STATOR_BOOTSTRAP_ORG_NAME: Stator
+      STATOR_BOOTSTRAP_ADMIN_EMAIL: ${STATOR_ADMIN_EMAIL}
+      STATOR_BOOTSTRAP_ADMIN_PASSWORD: ${STATOR_ADMIN_PASSWORD}
+      STATOR_BOOTSTRAP_OIDC_ISSUER: *issuer
+      STATOR_BOOTSTRAP_OIDC_CLIENT_ID: stator
+      STATOR_BOOTSTRAP_OIDC_CLIENT_SECRET: stator-dev-secret
+      STATOR_BOOTSTRAP_MEMBERS: ${DYNAMO_MEMBERS}
+    networks: [stator]
+    restart: "no"
+
+  stator-api:
+    image: ${STATOR_IMAGES}-backend:${STATOR_VERSION}
+    command: ["/app/api"]
+    depends_on:
+      stator-valkey: {condition: service_healthy}
+      stator-converter: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      stator-seed: {condition: service_completed_successfully}
+    environment: &stator-env
+      STATOR_ENV: development
+      STATOR_HTTP_ADDR: ":8080"
+      STATOR_DB_PRIMARY_URL: postgres://stator_app:${STATOR_APP_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
+      STATOR_DB_ADMIN_URL: postgres://stator_admin:${STATOR_ADMIN_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
+      STATOR_VALKEY_URL: redis://:${STATOR_VALKEY_PASSWORD}@valkey:6379/0
+      STATOR_S3_ENDPOINT: seaweedfs:8333
+      STATOR_S3_BUCKET: stator-files
+      STATOR_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      STATOR_S3_SECRET_KEY: ${S3_SECRET_KEY}
+      STATOR_CONVERTER_URL: http://converter:3000
+      STATOR_RENDER_URL: http://render:8090
+      STATOR_APP_URL: http://localhost:${STATOR_WEB_PORT}
+      STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
+      STATOR_SMTP_ADDR: mailpit:1025
+      STATOR_MAIL_FROM: Stator <no-reply@stator.test>
+      STATOR_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
+      STATOR_OUTBOUND_ALLOW: armature-api,exciter-api
+      STATOR_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
+      STATOR_EXCITER_BACKCHANNEL: http://localhost:${EXCITER_WEB_PORT}=http://exciter-api:8080
+      # What Stator names as its receiver when Armature makes Stator's webhook.
+      STATOR_ARMATURE_WEBHOOK_URL: http://stator-api:8080/api/v1/armature/webhook
+    networks:
+      stator:
+        aliases: [api]
+      suite:
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "/app/api", "-healthcheck"]
+
+  stator-worker:
+    image: ${STATOR_IMAGES}-backend:${STATOR_VERSION}
+    command: ["/app/worker"]
+    depends_on:
+      stator-api: {condition: service_healthy}
+    environment: *stator-env
+    networks: [stator, suite]
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
+
+  stator-web:
+    image: ${STATOR_IMAGES}-web:${STATOR_VERSION}
+    depends_on:
+      stator-api: {condition: service_healthy}
+    networks:
+      stator:
+        aliases: [web]
+    ports:
+      - "127.0.0.1:${STATOR_WEB_PORT}:80"
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/readyz"]
+
+  stator-render:
+    image: ${STATOR_IMAGES}-render:${STATOR_VERSION}
+    restart: on-failure
+    depends_on:
+      stator-web: {condition: service_healthy}
+    environment:
+      HOME: /tmp
+      RENDER_PORT: "8090"
+      RENDER_APP_URL: http://web
+    networks:
+      stator:
+        aliases: [render]
+
+  # ── Armature ──────────────────────────────────────────────────────────
+
+  armature-postgres:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: armature
+      POSTGRES_PASSWORD: ${ARMATURE_POSTGRES_PASSWORD}
+      POSTGRES_DB: armature
+      APP_DB_PASSWORD: ${ARMATURE_APP_DB_PASSWORD}
+      ADMIN_DB_PASSWORD: ${ARMATURE_ADMIN_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - armature-postgres:/var/lib/postgresql/18/docker
+      - ./postgres/armature-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks:
+      armature:
+        aliases: [postgres-primary]
+    healthcheck:
+      <<: *pg-health
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U armature -d armature"]
+
+  armature-valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${ARMATURE_VALKEY_PASSWORD}
+    command: ["valkey-server", "--appendonly", "yes", "--requirepass", "${ARMATURE_VALKEY_PASSWORD}"]
+    volumes:
+      - armature-valkey:/data
+    networks:
+      armature:
+        aliases: [redis]
+    healthcheck:
+      <<: *valkey-health
+      test: ["CMD-SHELL", "valkey-cli -a $$VALKEY_PASSWORD --no-auth-warning ping | grep -q PONG"]
+
+  armature-migrate:
+    image: ${ARMATURE_IMAGES}-migrate:${ARMATURE_VERSION}
+    depends_on:
+      armature-postgres: {condition: service_healthy}
+    environment:
+      ARMATURE_DB_PRIMARY_URL: postgres://armature:${ARMATURE_POSTGRES_PASSWORD}@postgres-primary:5432/armature?sslmode=disable
+    networks: [armature]
+    restart: "no"
+
+  armature-api:
+    image: ${ARMATURE_IMAGES}-api:${ARMATURE_VERSION}
+    depends_on:
+      armature-valkey: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      armature-migrate: {condition: service_completed_successfully}
+    environment: &armature-env
+      ARMATURE_ENV: development
+      ARMATURE_HTTP_ADDR: ":8080"
+      ARMATURE_NAME: Armature
+      ARMATURE_DB_PRIMARY_URL: postgres://armature_app:${ARMATURE_APP_DB_PASSWORD}@postgres-primary:5432/armature?sslmode=disable
+      ARMATURE_DB_ADMIN_URL: postgres://armature_admin:${ARMATURE_ADMIN_DB_PASSWORD}@postgres-primary:5432/armature?sslmode=disable
+      ARMATURE_REDIS_URL: redis://:${ARMATURE_VALKEY_PASSWORD}@redis:6379/0
+      ARMATURE_S3_ENDPOINT: seaweedfs:8333
+      ARMATURE_S3_BUCKET: armature-attachments
+      ARMATURE_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      ARMATURE_S3_SECRET_KEY: ${S3_SECRET_KEY}
+      ARMATURE_RENDER_URL: http://render:8090
+      ARMATURE_APP_URL: http://localhost:${ARMATURE_WEB_PORT}
+      ARMATURE_OIDC_REDIRECT_URL: http://localhost:${ARMATURE_WEB_PORT}/api/v1/auth/oidc/callback
+      ARMATURE_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
+      ARMATURE_SECRET_KEY: ${ARMATURE_SECRET_KEY}
+      ARMATURE_SMTP_ADDR: mailpit:1025
+      ARMATURE_MAIL_FROM: Armature <no-reply@armature.test>
+      # The first account sets the installation up; dynamo-connect makes it.
+      ARMATURE_SIGNUP: first
+      # The webhooks go to the partners' apis and discovery to Keycloak, all
+      # on private addresses the guard refuses unless they are named.
+      ARMATURE_OUTBOUND_ALLOW: stator-api,exciter-api,keycloak
+    networks:
+      armature:
+        aliases: [api]
+      suite:
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "/app/api", "-healthcheck"]
+
+  armature-worker:
+    image: ${ARMATURE_IMAGES}-worker:${ARMATURE_VERSION}
+    depends_on:
+      armature-api: {condition: service_healthy}
+    environment: *armature-env
+    networks: [armature, suite]
+
+  armature-web:
+    image: ${ARMATURE_IMAGES}-web:${ARMATURE_VERSION}
+    depends_on:
+      armature-api: {condition: service_healthy}
+    networks:
+      armature:
+        aliases: [web]
+    ports:
+      - "127.0.0.1:${ARMATURE_WEB_PORT}:80"
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+
+  armature-render:
+    image: ${ARMATURE_IMAGES}-render:${ARMATURE_VERSION}
+    restart: on-failure
+    depends_on:
+      armature-web: {condition: service_healthy}
+    environment:
+      HOME: /tmp
+      RENDER_PORT: "8090"
+      RENDER_APP_URL: http://web
+    networks:
+      armature:
+        aliases: [render]
+
+  # ── Exciter ───────────────────────────────────────────────────────────
+
+  exciter-postgres:
+    <<: *postgres
+    environment:
+      POSTGRES_USER: exciter
+      POSTGRES_PASSWORD: ${EXCITER_POSTGRES_PASSWORD}
+      POSTGRES_DB: exciter
+      APP_DB_PASSWORD: ${EXCITER_APP_DB_PASSWORD}
+      ADMIN_DB_PASSWORD: ${EXCITER_ADMIN_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - exciter-postgres:/var/lib/postgresql/18/docker
+      - ./postgres/exciter-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks:
+      exciter:
+        aliases: [postgres-primary]
+    healthcheck:
+      <<: *pg-health
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U exciter -d exciter"]
+
+  exciter-valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${EXCITER_VALKEY_PASSWORD}
+    command: ["valkey-server", "--appendonly", "yes", "--requirepass", "${EXCITER_VALKEY_PASSWORD}"]
+    volumes:
+      - exciter-valkey:/data
+    networks:
+      exciter:
+        aliases: [valkey]
+    healthcheck:
+      <<: *valkey-health
+      test: ["CMD-SHELL", "valkey-cli -a $$VALKEY_PASSWORD --no-auth-warning ping | grep -q PONG"]
+
+  exciter-migrate:
+    image: ${EXCITER_IMAGES}-backend:${EXCITER_VERSION}
+    command: ["/app/migrate", "up"]
+    depends_on:
+      exciter-postgres: {condition: service_healthy}
+    environment:
+      EXCITER_DB_PRIMARY_URL: postgres://exciter:${EXCITER_POSTGRES_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
+    networks: [exciter]
+    restart: "no"
+
+  exciter-seed:
+    image: ${EXCITER_IMAGES}-backend:${EXCITER_VERSION}
+    command: ["/app/seed", "bootstrap"]
+    depends_on:
+      exciter-migrate: {condition: service_completed_successfully}
+    environment:
+      EXCITER_ENV: development
+      EXCITER_NAME: Exciter
+      EXCITER_DB_PRIMARY_URL: postgres://exciter_app:${EXCITER_APP_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
+      EXCITER_DB_ADMIN_URL: postgres://exciter_admin:${EXCITER_ADMIN_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
+      EXCITER_SECRET_KEY: ${EXCITER_SECRET_KEY}
+      EXCITER_BOOTSTRAP_ADMIN_EMAIL: ${EXCITER_ADMIN_EMAIL}
+      EXCITER_BOOTSTRAP_ADMIN_PASSWORD: ${EXCITER_ADMIN_PASSWORD}
+      EXCITER_BOOTSTRAP_OIDC_ISSUER: *issuer
+      EXCITER_BOOTSTRAP_OIDC_CLIENT_ID: exciter
+      EXCITER_BOOTSTRAP_OIDC_CLIENT_SECRET: exciter-dev-secret
+      EXCITER_BOOTSTRAP_MEMBERS: ${DYNAMO_MEMBERS}
+    networks: [exciter]
+    restart: "no"
+
+  exciter-api:
+    image: ${EXCITER_IMAGES}-backend:${EXCITER_VERSION}
+    command: ["/app/api"]
+    depends_on:
+      exciter-valkey: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      exciter-seed: {condition: service_completed_successfully}
+    environment: &exciter-env
+      EXCITER_ENV: development
+      EXCITER_HTTP_ADDR: ":8080"
+      EXCITER_NAME: Exciter
+      EXCITER_DB_PRIMARY_URL: postgres://exciter_app:${EXCITER_APP_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
+      EXCITER_DB_ADMIN_URL: postgres://exciter_admin:${EXCITER_ADMIN_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
+      EXCITER_VALKEY_URL: redis://:${EXCITER_VALKEY_PASSWORD}@valkey:6379/0
+      EXCITER_SECRET_KEY: ${EXCITER_SECRET_KEY}
+      EXCITER_S3_ENDPOINT: seaweedfs:8333
+      EXCITER_S3_BUCKET: exciter-files
+      EXCITER_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      EXCITER_S3_SECRET_KEY: ${S3_SECRET_KEY}
+      EXCITER_RENDER_URL: http://render:8090
+      EXCITER_APP_URL: http://localhost:${EXCITER_WEB_PORT}
+      EXCITER_SMTP_ADDR: mailpit:1025
+      EXCITER_MAIL_FROM: Exciter <no-reply@exciter.test>
+      EXCITER_TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+      EXCITER_OIDC_BACKCHANNEL: http://localhost:${KEYCLOAK_PORT}=http://keycloak:8080
+      EXCITER_OUTBOUND_ALLOW: armature-api,stator-api
+      EXCITER_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
+      EXCITER_STATOR_BACKCHANNEL: http://localhost:${STATOR_WEB_PORT}=http://stator-api:8080
+    networks:
+      exciter:
+        aliases: [api]
+      suite:
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "/app/api", "-healthcheck"]
+
+  exciter-worker:
+    image: ${EXCITER_IMAGES}-backend:${EXCITER_VERSION}
+    command: ["/app/worker"]
+    depends_on:
+      exciter-api: {condition: service_healthy}
+    environment: *exciter-env
+    networks: [exciter, suite]
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/metrics"]
+
+  exciter-web:
+    image: ${EXCITER_IMAGES}-web:${EXCITER_VERSION}
+    depends_on:
+      exciter-api: {condition: service_healthy}
+    networks:
+      exciter:
+        aliases: [web]
+    ports:
+      - "127.0.0.1:${EXCITER_WEB_PORT}:80"
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/readyz"]
+
+  exciter-render:
+    image: ${EXCITER_IMAGES}-render:${EXCITER_VERSION}
+    restart: on-failure
+    depends_on:
+      exciter-web: {condition: service_healthy}
+    environment:
+      HOME: /tmp
+      RENDER_PORT: "8090"
+      RENDER_APP_URL: http://web
+    networks:
+      exciter:
+        aliases: [render]
+
+  # ── Wiring ────────────────────────────────────────────────────────────
+
+  # Connects the three through their admin APIs once all of them answer, and
+  # exits; running it again changes only what differs.
+  connect:
+    image: dynamo-connect:dev
+    build:
+      context: ../connect
+    # Run by make up after everything else is healthy, never by compose up.
+    profiles: [connect]
+    depends_on:
+      stator-api: {condition: service_healthy}
+      armature-api: {condition: service_healthy}
+      exciter-api: {condition: service_healthy}
+    environment:
+      DYNAMO_STATOR_API: http://stator-api:8080
+      DYNAMO_ARMATURE_API: http://armature-api:8080
+      DYNAMO_EXCITER_API: http://exciter-api:8080
+      DYNAMO_STATOR_URL: http://localhost:${STATOR_WEB_PORT}
+      DYNAMO_ARMATURE_URL: http://localhost:${ARMATURE_WEB_PORT}
+      DYNAMO_EXCITER_URL: http://localhost:${EXCITER_WEB_PORT}
+      DYNAMO_STATOR_VERSION: ${STATOR_VERSION}
+      DYNAMO_ARMATURE_VERSION: ${ARMATURE_VERSION}
+      DYNAMO_EXCITER_VERSION: ${EXCITER_VERSION}
+      DYNAMO_STATOR_ADMIN_EMAIL: ${STATOR_ADMIN_EMAIL}
+      DYNAMO_STATOR_ADMIN_PASSWORD: ${STATOR_ADMIN_PASSWORD}
+      DYNAMO_ARMATURE_ADMIN_EMAIL: ${ARMATURE_ADMIN_EMAIL}
+      DYNAMO_ARMATURE_ADMIN_PASSWORD: ${ARMATURE_ADMIN_PASSWORD}
+      DYNAMO_EXCITER_ADMIN_EMAIL: ${EXCITER_ADMIN_EMAIL}
+      DYNAMO_EXCITER_ADMIN_PASSWORD: ${EXCITER_ADMIN_PASSWORD}
+      DYNAMO_OIDC_ISSUER: *issuer
+      DYNAMO_ARMATURE_OIDC_CLIENT_ID: armature
+      DYNAMO_ARMATURE_OIDC_CLIENT_SECRET: armature-dev-secret
+      DYNAMO_MEMBERS: ${DYNAMO_MEMBERS}
+    networks: [suite]
+    restart: "no"
+
+volumes:
+  seaweedfs-data:
+  stator-postgres:
+  stator-valkey:
+  armature-postgres:
+  armature-valkey:
+  exciter-postgres:
+  exciter-valkey:
