@@ -45,6 +45,9 @@ changes only what differs, so it can run again at any time (`make connect`):
    sender's webhook for the topics its receiver asks for, pointed at the
    receiver's api inside the network, and stores the secret in the receiver.
 
+`make test-signin` signs alice in to all three through Keycloak on the
+running stack, as a browser would: with her password once, then without.
+
 People still connect their own accounts across tools until the tools connect
 them at sign-in (Cloudster1/Armature#301, #302, praetorianer777/Stator#430,
 #461, #462, Cloudster1/Exciter#273, #274).

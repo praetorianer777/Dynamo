@@ -170,8 +170,14 @@ stack-down:
 # Two runs of the connect job: the first wires the stack, the second must find
 # nothing left to change.
 .PHONY: test-stack
-test-stack: stack-up
+test-stack: stack-up test-signin
 	docker compose run --rm -e DYNAMO_EXPECT_UNCHANGED=1 connect
+
+# Signs in through the realm as a browser would, from the host's network,
+# since the issuer is the address browsers use.
+.PHONY: test-signin
+test-signin: | $(GO_CACHE) ## Sign in to all three through Keycloak on the running stack
+	$(call go_run,--network host -e DYNAMO_STACK_ENV=/work/.cache/stack.env) go test -count=1 -tags stack -run Stack -v ./...
 
 # The stack as compose reads it with the variables above, for tests/test-compose.sh.
 .PHONY: compose-config
