@@ -18,10 +18,12 @@ jobs:
 
   stack:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      # Until every pinned version is released there is nothing to pull; the
-      # job says so instead of failing every pull request.
+      # Until every pinned version is released there is nothing to pull, so
+      # the images are built from the tools' main branches instead, and the
+      # job says it tested those rather than the pins.
       - id: pins
         run: |
           missing=""
@@ -29,21 +31,21 @@ jobs:
             docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
           done
           if [ -n "$missing" ]; then
-            echo "::warning title=Stack not tested::These pinned images are not published yet:$missing"
+            echo "::notice title=Stack tested against the tools' main branches::These pinned images are not published yet, so they were built from source:$missing"
             echo "available=false" >> "$GITHUB_OUTPUT"
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
-      - if: steps.pins.outputs.available == 'true'
-        run: ./run-tests.sh test-stack
+      - if: steps.pins.outputs.available == 'false'
+        run: scripts/free-runner-disk.sh && scripts/images-from-source.sh
+      - run: ./run-tests.sh test-stack
 
   chart:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      # The same reason as the stack job: the pinned charts and images have to
-      # be published before a cluster can pull them.
+      # The same as the stack job, and the tools' charts come from source too.
       - id: pins
         run: |
           missing=""
@@ -51,10 +53,13 @@ jobs:
             docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
           done
           if [ -n "$missing" ]; then
-            echo "::warning title=Chart not tested::These pinned images are not published yet:$missing"
+            echo "::notice title=Chart tested against the tools' main branches::These pinned images are not published yet, so they and the tools' charts were built from source:$missing"
             echo "available=false" >> "$GITHUB_OUTPUT"
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
-      - if: steps.pins.outputs.available == 'true'
-        run: ./run-tests.sh test-chart
+      - if: steps.pins.outputs.available == 'false'
+        run: |
+          scripts/free-runner-disk.sh && scripts/images-from-source.sh
+          echo "DYNAMO_CHARTS_FROM_SOURCE=1" >> "$GITHUB_ENV"
+      - run: ./run-tests.sh test-chart
