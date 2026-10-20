@@ -1,0 +1,7 @@
+# The versions Dynamo runs and tests together, one line per tool. A release of
+# a tool changes its line by pull request once the combination passed; the
+# image tags are these versions exactly, as the tools' release workflows push
+# them.
+stator: 0.1.0
+armature: 0.1.0
+exciter: 0.1.0

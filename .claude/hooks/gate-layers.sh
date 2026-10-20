@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Which layers of ./run-tests.sh a push needs, from the files it changes. The
+# one place that knows which path can affect which layer; a path it does not
+# know runs every layer, so a new directory is tested until it is listed here.
+#
+#   gate-layers.sh [quick|full] < changed-files    one path a line
+#
+# Prints "run: <layers>" and "skipped: <layer (reason)>...". Quick, the
+# default, leaves the stack of all three tools to CI, which blocks the merge
+# anyway; full runs it when a change can affect it.
+set -uo pipefail
+
+mode="${1:-quick}"
+[[ "$mode" == quick || "$mode" == full ]] || { echo "gate-layers.sh: the mode is quick or full, not $mode" >&2; exit 2; }
+
+need_go=0 need_stack=0 seen=0
+while IFS= read -r path; do
+  [[ -n "$path" ]] || continue
+  seen=1
+  case "$path" in
+    *.md | NOTICE | LICENSE | docs/*) ;;
+    connect/*) need_go=1 need_stack=1 ;;
+    deploy/* | versions.yaml | mk/* | Makefile) need_stack=1 ;;
+    tests/* | scripts/* | .github/* | .claude/*) ;;
+    *) need_go=1 need_stack=1 ;;
+  esac
+done
+
+# No files known, such as a push whose base cannot be found, runs everything.
+if (( !seen )); then need_go=1 need_stack=1; fi
+
+run=(shell check-format)
+skipped=()
+if (( need_go )); then run+=(check-go); else skipped+=("check-go (no file of dynamo-connect changed)"); fi
+if [[ "$mode" == full ]]; then
+  if (( need_stack )); then run+=(test-stack); else skipped+=("test-stack (no file the stack reads changed)"); fi
+else
+  skipped+=("test-stack (left to CI; DYNAMO_GATE=full runs it)")
+fi
+
+echo "run: ${run[*]}"
+echo "skipped: ${skipped[*]:-none}"
