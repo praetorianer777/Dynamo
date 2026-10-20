@@ -1,0 +1,82 @@
+{{- $secret := printf "%s-connect" .Release.Name }}
+{{- $armatureAdmin := printf "%s-armature-admin" .Release.Name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $armatureAdmin }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ .Values.armatureAdmin.email | quote }}
+  password: {{ include "dynamo.password" (dict "root" . "secret" $armatureAdmin "key" "password" "value" .Values.armatureAdmin.password) | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+stringData:
+  stator-client-secret: {{ .Values.oidc.clients.stator.secret | quote }}
+  armature-client-secret: {{ .Values.oidc.clients.armature.secret | quote }}
+  exciter-client-secret: {{ .Values.oidc.clients.exciter.secret | quote }}
+---
+# Connects the three once all of them answer: after their own migrate and
+# bootstrap hooks (weight 10), on every install and upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-connect
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: dynamo-connect
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dynamo-connect
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: connect
+          image: "{{ .Values.connect.image.repository }}:{{ .Values.connect.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.connect.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            - { name: DYNAMO_WAIT, value: {{ .Values.connect.wait | quote }} }
+            - { name: DYNAMO_OIDC_ISSUER, value: {{ include "dynamo.issuer" . | quote }} }
+            - { name: DYNAMO_OIDC_GROUPS_CLAIM, value: {{ .Values.oidc.groupsClaim | quote }} }
+            - name: DYNAMO_MEMBERS
+              value: {{ $m := list }}{{ range .Values.members }}{{ $m = append $m (printf "%s=%s" .email .role) }}{{ end }}{{ join "," $m | quote }}
+            {{- range $d := .Chart.Dependencies }}
+            {{- $t := $d.Name }}
+            {{- $T := upper $t }}
+            - { name: DYNAMO_{{ $T }}_API, value: "http://{{ $t }}-api:8080" }
+            - { name: DYNAMO_{{ $T }}_URL, value: {{ include "dynamo.toolURL" (dict "root" $ "tool" $t) | quote }} }
+            - { name: DYNAMO_{{ $T }}_VERSION, value: {{ $d.Version | quote }} }
+            - { name: DYNAMO_{{ $T }}_OIDC_CLIENT_ID, value: {{ (index $.Values.oidc.clients $t).id | quote }} }
+            - name: DYNAMO_{{ $T }}_OIDC_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $t }}-client-secret } }
+            {{- $admin := ternary $armatureAdmin (printf "%s-bootstrap-admin" $t) (eq $t "armature") }}
+            - name: DYNAMO_{{ $T }}_ADMIN_EMAIL
+              valueFrom: { secretKeyRef: { name: {{ $admin }}, key: username } }
+            - name: DYNAMO_{{ $T }}_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $admin }}, key: password } }
+            {{- end }}
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }

@@ -120,6 +120,12 @@ stack-env:
 		'STATOR_VERSION=$(STATOR_VERSION)' \
 		'ARMATURE_VERSION=$(ARMATURE_VERSION)' \
 		'EXCITER_VERSION=$(EXCITER_VERSION)' \
+		'STATOR_ADMIN_EMAIL=$(STATOR_ADMIN_EMAIL)' \
+		'STATOR_ADMIN_PASSWORD=$(STATOR_ADMIN_PASSWORD)' \
+		'ARMATURE_ADMIN_EMAIL=$(ARMATURE_ADMIN_EMAIL)' \
+		'ARMATURE_ADMIN_PASSWORD=$(ARMATURE_ADMIN_PASSWORD)' \
+		'EXCITER_ADMIN_EMAIL=$(EXCITER_ADMIN_EMAIL)' \
+		'EXCITER_ADMIN_PASSWORD=$(EXCITER_ADMIN_PASSWORD)' \
 		> $(STACK_ENV_FILE)
 
 # The connect job runs to its end before up returns, so a stack that came up
@@ -173,10 +179,10 @@ stack-down:
 test-stack: stack-up test-signin
 	docker compose run --rm -e DYNAMO_EXPECT_UNCHANGED=1 connect
 
-# Signs in through the realm as a browser would, from the host's network,
-# since the issuer is the address browsers use.
+# Signs in through the realm as a browser would and tests every webhook, from
+# the host's network, since the issuer is the address browsers use.
 .PHONY: test-signin
-test-signin: | $(GO_CACHE) ## Sign in to all three through Keycloak on the running stack
+test-signin: | $(GO_CACHE) ## Sign in to all three through Keycloak and test every webhook on the running stack
 	$(call go_run,--network host -e DYNAMO_STACK_ENV=/work/.cache/stack.env) go test -count=1 -tags stack -run Stack -v ./...
 
 # The stack as compose reads it with the variables above, for tests/test-compose.sh.

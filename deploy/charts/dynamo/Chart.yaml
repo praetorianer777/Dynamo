@@ -1,0 +1,20 @@
+apiVersion: v2
+name: dynamo
+description: Stator, Armature and Exciter at the versions Dynamo tested together, connected to each other.
+type: application
+# The suite's release (YYYY.MM.N once #3 tags them); appVersion is the
+# dynamo-connect image's tag.
+version: 0.1.0
+appVersion: "0.1.0"
+# One dependency per tool at the version versions.yaml pins; tests/test-chart.sh
+# refuses any other.
+dependencies:
+  - name: stator
+    version: 0.1.0
+    repository: oci://ghcr.io/praetorianer777/charts
+  - name: armature
+    version: 0.1.0
+    repository: oci://ghcr.io/cloudster1/charts
+  - name: exciter
+    version: 0.1.0
+    repository: oci://ghcr.io/cloudster1/charts

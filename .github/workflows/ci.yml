@@ -36,3 +36,25 @@ jobs:
           fi
       - if: steps.pins.outputs.available == 'true'
         run: ./run-tests.sh test-stack
+
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      # The same reason as the stack job: the pinned charts and images have to
+      # be published before a cluster can pull them.
+      - id: pins
+        run: |
+          missing=""
+          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect'); do
+            docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning title=Chart not tested::These pinned images are not published yet:$missing"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.pins.outputs.available == 'true'
+        run: ./run-tests.sh test-chart

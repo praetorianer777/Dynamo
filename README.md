@@ -30,6 +30,31 @@ To sign in through a Keycloak or realm of your own, set `OIDC_ISSUER` and
 the tools' clients; `docs/keycloak.md` lists the settings and what the realm
 must hold.
 
+## In a cluster
+
+`deploy/charts/dynamo` installs the three with one `helm install`, at the
+pinned versions, with the same wiring: a bundled Keycloak (or a realm of your
+own: `keycloak.enabled=false`, `oidc.issuer`, `oidc.clients`), one S3 store,
+fixed service names (`stator-api`, `armature-web`, ...) and dynamo-connect as
+a post-install and post-upgrade Job, so a finished install is a connected
+suite. Each tool is configured under its own key as its own chart documents;
+set `<tool>.ingress.host` and the realm, the Job and the partners follow.
+
+```bash
+helm install dynamo deploy/charts/dynamo -n dynamo --create-namespace \
+  --set stator.ingress.host=wiki.example.com \
+  --set armature.ingress.host=issues.example.com \
+  --set exciter.ingress.host=requirements.example.com \
+  --set keycloak.ingress.enabled=true --set keycloak.ingress.host=sso.example.com
+```
+
+`make test-chart` installs it into a kind cluster and checks that the three
+come up connected: the Job ran, one sign-in through the realm opens all three,
+every webhook delivers, and an upgrade finds nothing left to change. Until
+the tools publish their charts, `DYNAMO_CHARTS_FROM_SOURCE=1` packages them
+from their main branches (`DYNAMO_<TOOL>_SOURCE=owner/repo@branch` for
+another).
+
 ## What dynamo-connect does
 
 It runs once after the three answer, through their admin APIs only, and

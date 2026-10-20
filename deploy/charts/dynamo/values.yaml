@@ -1,0 +1,162 @@
+# Stator, Armature and Exciter in one release, connected to each other by the
+# dynamo-connect Job after every install and upgrade.
+#
+# Each tool's chart is configured under its own key, exactly as its own chart
+# documents. What Dynamo fills in for them is the wiring: fixed service names
+# (stator-api, armature-web, ...), the shared object store and Keycloak, and
+# the partners' addresses in each tool's outbound allow list. Change a tool's
+# address with its ingress.host and ingress.tls.enabled; the realm, the Job
+# and the partners follow.
+
+# Sign-in. With keycloak.enabled the release runs a Keycloak with the realm
+# dynamo from files/realm.json (the canonical copy in deploy/keycloak), with
+# each client's redirect URIs set to its tool's address. Turn it off and set
+# oidc.issuer for a Keycloak and realm of your own; docs/keycloak.md says what
+# that realm must hold.
+keycloak:
+  enabled: true
+  image: quay.io/keycloak/keycloak:26.2
+  # The address browsers and the tools both use. Empty: https://<ingress.host>
+  # with the ingress on, else http://keycloak:8080, the Service inside the
+  # cluster, which only a client that resolves it can sign in through.
+  url: ""
+  ingress:
+    enabled: false
+    className: ""
+    host: sso.example.com
+    annotations: {}
+    tls: { enabled: true, secretName: keycloak-tls }
+  admin:
+    username: admin
+    # Empty: a random password, kept in the Secret <release>-keycloak-admin.
+    password: ""
+  # Shipped with the canonical realm's demo users (alice, bob, carol, dave).
+  # Turn it off to import the realm without them.
+  demoUsers: true
+  # Its start rebuilds the server, which a 1Gi limit does not survive.
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 2Gi }
+
+oidc:
+  # Empty with the bundled Keycloak: <keycloak.url>/realms/dynamo.
+  issuer: ""
+  groupsClaim: groups
+  # Each tool's client in the realm. The bundled realm has these ids with the
+  # dev secrets below; with a realm of your own, set its secrets.
+  clients:
+    stator: { id: stator, secret: stator-dev-secret }
+    armature: { id: armature, secret: armature-dev-secret }
+    exciter: { id: exciter, secret: exciter-dev-secret }
+
+# Who of the realm is let into all three before their first sign-in. Keep
+# stator.bootstrap.members and exciter.bootstrap.members the same; the chart
+# refuses a difference.
+members:
+  - { email: alice@suite.test, role: admin }
+  - { email: bob@suite.test, role: member }
+
+# Armature has no bootstrap of its own: dynamo-connect makes this account its
+# owner on the first install. Empty password: a random one, kept in the Secret
+# <release>-armature-admin.
+armatureAdmin:
+  email: admin@armature.dynamo
+  password: ""
+
+# One S3 store for all three, the Service s3 on port 8333. Each tool keeps its
+# own bucket and is given these keys in its own values below; the chart
+# refuses keys that differ. Turn it off to point the tools at an S3 of yours.
+objectStore:
+  enabled: true
+  image: chrislusf/seaweedfs:4.46
+  accessKey: dynamo
+  secretKey: dynamo-dev-secret
+  storage: 10Gi
+
+connect:
+  image:
+    repository: ghcr.io/praetorianer777/dynamo-connect
+    # Empty: the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # How long the Job waits for the three apis after the tools' own hooks.
+  wait: 15m
+
+stator:
+  fullnameOverride: stator
+  env: production
+  # The tool's own ingress, on with TLS by default; its address follows.
+  ingress:
+    host: stator.example.com
+  database: { sslmode: disable, ownerRole: postgres }
+  postgresql: { enabled: true }
+  valkey: { bundled: true }
+  seaweedfs: { enabled: false }
+  s3:
+    enabled: true
+    endpoint: s3:8333
+    useSSL: false
+  secrets:
+    s3AccessKey: dynamo
+    s3SecretKey: dynamo-dev-secret
+  jobs:
+    bootstrap: { enabled: true }
+  bootstrap:
+    admin: { email: admin@stator.dynamo }
+    members:
+      - { email: alice@suite.test, role: admin }
+      - { email: bob@suite.test, role: member }
+  network:
+    outboundAllow: [armature-web, armature-api, exciter-web, exciter-api, keycloak]
+  armature:
+    webhookUrl: http://stator-api:8080/api/v1/armature/webhook
+
+armature:
+  fullnameOverride: armature
+  env: production
+  # The tool's own ingress, on with TLS by default; its address follows.
+  ingress:
+    host: armature.example.com
+  auth:
+    signup: first
+  database: { name: armature, sslmode: disable, ownerRole: postgres }
+  postgresql: { enabled: true }
+  redis: { enabled: true }
+  seaweedfs: { enabled: false }
+  s3:
+    enabled: true
+    endpoint: s3:8333
+    useSSL: false
+  secrets:
+    create: true
+    s3AccessKey: dynamo
+    s3SecretKey: dynamo-dev-secret
+  network:
+    outboundAllow: [stator-api, exciter-api, keycloak]
+
+exciter:
+  fullnameOverride: exciter
+  env: production
+  # The tool's own ingress, on with TLS by default; its address follows.
+  ingress:
+    host: exciter.example.com
+  database: { sslmode: disable, ownerRole: postgres }
+  postgresql: { enabled: true }
+  valkey: { bundled: true }
+  seaweedfs: { enabled: false }
+  s3:
+    enabled: true
+    endpoint: s3:8333
+    useSSL: false
+  secrets:
+    s3AccessKey: dynamo
+    s3SecretKey: dynamo-dev-secret
+  jobs:
+    bootstrap: { enabled: true }
+  bootstrap:
+    admin: { email: admin@exciter.dynamo }
+    members:
+      - { email: alice@suite.test, role: admin }
+      - { email: bob@suite.test, role: member }
+  network:
+    outboundAllow: [armature-web, armature-api, stator-web, stator-api, keycloak]
