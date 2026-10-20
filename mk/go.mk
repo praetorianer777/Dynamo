@@ -2,7 +2,6 @@
 # invoking user, with module and build caches under .cache/ so they survive
 # between runs. Pinned to 1.26, as the tools are.
 GO_IMAGE ?= golang:1.26-bookworm
-GO_CACHE := $(ROOT)/.cache/go
 
 go_run = docker run --rm \
 	-u $(UID_GID) \
