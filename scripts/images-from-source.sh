@@ -21,7 +21,10 @@ build() {
   local src version
   src=$(printenv "DYNAMO_${tool^^}_SOURCE" || echo "$default")
   version=$(pin "$tool")
-  docker build -q --build-arg "VERSION=$version" --build-arg "COMMIT=${src#*@}" \
+  # BuildKit leaves .git out of a git context unless asked, and the tools'
+  # build stamps read it.
+  docker build -q --build-arg BUILDKIT_CONTEXT_KEEP_GIT_DIR=1 \
+    --build-arg "VERSION=$version" --build-arg "COMMIT=${src#*@}" \
     ${target:+--target "$target"} -f "$dockerfile" -t "$image:$version" \
     "https://github.com/${src%@*}.git#${src#*@}" > /dev/null
   echo "   $image:$version from $src"

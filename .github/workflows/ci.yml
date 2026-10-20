@@ -27,7 +27,7 @@ jobs:
       - id: pins
         run: |
           missing=""
-          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect'); do
+          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect' | sort -u); do
             docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
           done
           if [ -n "$missing" ]; then
@@ -49,7 +49,7 @@ jobs:
       - id: pins
         run: |
           missing=""
-          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect'); do
+          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect' | sort -u); do
             docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
           done
           if [ -n "$missing" ]; then
