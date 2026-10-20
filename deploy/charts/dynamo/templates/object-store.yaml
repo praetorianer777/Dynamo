@@ -1,0 +1,84 @@
+{{- include "dynamo.checks" . }}
+{{- if .Values.objectStore.enabled }}
+{{- $o := .Values.objectStore }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-object-store
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+stringData:
+  access-key: {{ $o.accessKey | quote }}
+  secret-key: {{ $o.secretKey | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-object-store
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+  annotations:
+    # The files outlive an uninstall, as the tools' databases do.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ $o.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: object-store
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: object-store
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: object-store
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        # One container is the whole store: master, volume, filer and the S3
+        # gateway. Given the two keys it refuses unsigned requests.
+        - name: seaweedfs
+          image: {{ $o.image }}
+          args: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: {{ .Release.Name }}-object-store, key: access-key } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Release.Name }}-object-store, key: secret-key } }
+          ports:
+            - { name: s3, containerPort: 8333 }
+          readinessProbe:
+            httpGet: { path: /cluster/healthz, port: 9333 }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-object-store
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: object-store
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: s3, port: 8333, targetPort: s3 }
+{{- end }}

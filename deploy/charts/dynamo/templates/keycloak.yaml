@@ -1,0 +1,147 @@
+{{- if .Values.keycloak.enabled }}
+{{- $k := .Values.keycloak }}
+{{- $secret := printf "%s-keycloak-admin" .Release.Name }}
+{{- /* The canonical realm, with each tool's client sent back to that tool's address only. */}}
+{{- $realm := .Files.Get "files/realm.json" | fromJson }}
+{{- $clients := list }}
+{{- range $c := $realm.clients }}
+{{- $c = deepCopy $c }}
+{{- if has $c.clientId (list "stator" "armature" "exciter") }}
+{{- $url := include "dynamo.toolURL" (dict "root" $ "tool" $c.clientId) }}
+{{- $_ := set $c "redirectUris" (list (printf "%s/*" $url)) }}
+{{- $_ := set $c "webOrigins" (list $url) }}
+{{- $client := index $.Values.oidc.clients $c.clientId }}
+{{- $_ := set $c "clientId" $client.id }}
+{{- $_ := set $c "secret" $client.secret }}
+{{- end }}
+{{- $clients = append $clients $c }}
+{{- end }}
+{{- $_ := set $realm "clients" $clients }}
+{{- if not $k.demoUsers }}
+{{- $_ := unset $realm "users" }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: {{ $k.admin.username | quote }}
+  password: {{ include "dynamo.password" (dict "root" . "secret" $secret "key" "password" "value" $k.admin.password) | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-realm
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+data:
+  realm.json: |
+    {{- toPrettyJson $realm | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        # The realm is imported at start, so a changed realm restarts it.
+        checksum/realm: {{ toJson $realm | sha256sum }}
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ $k.image }}
+          # Development mode imports the realm afresh on every start and keeps
+          # nothing: for trying the suite, not for people's accounts.
+          args: ["start-dev", "--import-realm", "--http-port=8080"]
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: username } }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: password } }
+            - name: KC_HOSTNAME
+              value: {{ include "dynamo.keycloakURL" . | quote }}
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            periodSeconds: 5
+            failureThreshold: 60
+          resources:
+            {{- toYaml $k.resources | nindent 12 }}
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: {{ .Release.Name }}-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+{{- if $k.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+  {{- with $k.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $k.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $k.ingress.tls.enabled }}
+  tls:
+    - hosts: [{{ $k.ingress.host | quote }}]
+      secretName: {{ $k.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ $k.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port: { name: http }
+{{- end }}
+{{- end }}

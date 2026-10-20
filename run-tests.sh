@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LAYERS=(shell check-format check-go test-stack)
+LAYERS=(shell check-format check-go test-stack test-chart)
 
 if [[ "${1:-}" == --list ]]; then
   printf '%s\n' "${LAYERS[@]}"
@@ -24,7 +24,7 @@ done
 wanted() { [[ " ${selected[*]} " == *" $1 "* ]]; }
 
 shell_tests() {
-  ./tests/test-versions.sh && ./tests/test-realm.sh && ./tests/test-compose.sh \
+  ./tests/test-versions.sh && ./tests/test-realm.sh && ./tests/test-chart.sh && ./tests/test-compose.sh \
     && ./.claude/hooks/tests/branch-guard-test.sh
 }
 
@@ -55,5 +55,8 @@ wanted check-go && run_layer check-go make --no-print-directory check-go
 if wanted test-stack; then
   stack_started=1
   run_layer test-stack make --no-print-directory test-stack
+  make stack-down >/dev/null 2>&1 || true
+  stack_started=""
 fi
+wanted test-chart && run_layer test-chart make --no-print-directory test-chart
 exit 0

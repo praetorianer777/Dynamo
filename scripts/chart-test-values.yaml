@@ -1,0 +1,30 @@
+# The chart in kind: every address is a Service name, which the test's client
+# resolves to a port-forward, so the tools reach each other and Keycloak at
+# the very addresses a browser does. Plain http, so no secure cookies.
+keycloak:
+  resources:
+    requests: { cpu: 50m, memory: 512Mi }
+
+stator:
+  env: development
+  ingress: { enabled: false, host: stator-web, tls: { enabled: false } }
+  auth: { secureCookies: false }
+  render: { enabled: false }
+  api: { replicas: 1 }
+  web: { replicas: 1 }
+
+armature:
+  env: development
+  ingress: { enabled: false, host: armature-web, tls: { enabled: false } }
+  auth: { secureCookies: false, signup: first }
+  render: { enabled: false }
+  api: { replicas: 1 }
+  web: { replicas: 1 }
+
+exciter:
+  env: development
+  ingress: { enabled: false, host: exciter-web, tls: { enabled: false } }
+  auth: { secureCookies: false }
+  render: { enabled: false }
+  api: { replicas: 1 }
+  web: { replicas: 1 }
