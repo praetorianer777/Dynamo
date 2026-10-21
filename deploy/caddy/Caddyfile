@@ -1,0 +1,25 @@
+# HTTPS for the suite on a server: each address of .env is a site of its own,
+# with a certificate Caddy gets from Let's Encrypt, so each name must point
+# at this machine and ports 80 and 443 must reach it. CADDY_GLOBAL_OPTIONS
+# takes Caddy's global options, such as "email admin@example.com".
+{
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+{$STATOR_URL} {
+	reverse_proxy stator-web:80
+}
+
+{$ARMATURE_URL} {
+	reverse_proxy armature-web:80
+}
+
+{$EXCITER_URL} {
+	reverse_proxy exciter-web:80
+}
+
+# Without the bundled Keycloak, compose names an address nobody asks for,
+# over plain HTTP, so this site needs no certificate.
+{$KEYCLOAK_URL} {
+	reverse_proxy keycloak:8080
+}

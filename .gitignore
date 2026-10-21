@@ -3,3 +3,5 @@ reports/
 /deploy/charts/dynamo/charts/
 /deploy/charts/dynamo/Chart.lock
 /dist/
+# A server's settings, with every password of the installation.
+/deploy/.env

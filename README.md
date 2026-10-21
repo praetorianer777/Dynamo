@@ -30,6 +30,15 @@ To sign in through a Keycloak or realm of your own, set `OIDC_ISSUER` and
 the tools' clients; `docs/keycloak.md` lists the settings and what the realm
 must hold.
 
+## On a server with Docker Compose
+
+The same compose file runs the suite on one machine, without `make`:
+`deploy/compose-secrets.sh` makes `deploy/.env` from `deploy/.env.example`
+and generates every password left empty, then `docker compose up -d` starts
+all three, with Keycloak and its database and HTTPS by Caddy, and connects
+them. `docs/deploying-compose.md` has the steps; `make test-server` tests
+exactly that.
+
 ## In a cluster
 
 `deploy/charts/dynamo` installs the three with one `helm install`, at the

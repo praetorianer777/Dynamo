@@ -40,6 +40,29 @@ jobs:
         run: scripts/free-runner-disk.sh && scripts/images-from-source.sh
       - run: ./run-tests.sh test-stack
 
+  # The suite as a server runs it: docker compose up from the settings
+  # template, over HTTPS, in production mode.
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - id: pins
+        run: |
+          missing=""
+          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect' | sort -u); do
+            docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice title=Server tested against the tools' main branches::These pinned images are not published yet, so they were built from source:$missing"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.pins.outputs.available == 'false'
+        run: scripts/free-runner-disk.sh && scripts/images-from-source.sh
+      - run: ./run-tests.sh test-server
+
   chart:
     runs-on: ubuntu-latest
     timeout-minutes: 120

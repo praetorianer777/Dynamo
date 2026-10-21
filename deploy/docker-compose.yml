@@ -1,7 +1,9 @@
 # Stator, Armature and Exciter from the images versions.yaml pins, wired to
 # each other, the way an operator would run them. Nothing here is built except
-# dynamo-connect, Dynamo's own setup job. mk/stack.mk exports the versions, the
-# ports and the credentials; `make up` is the way in.
+# dynamo-connect, Dynamo's own setup job. For development mk/stack.mk exports
+# the versions, the ports and the credentials, and `make up` is the way in; on
+# a server they come from .env beside this file, which compose-secrets.sh
+# completes (docs/deploying-compose.md).
 #
 # Each tool's web image proxies to a service called "api" and its render
 # service to one called "web", so each tool keeps a network of its own where
@@ -71,6 +73,66 @@ services:
       retries: 30
       start_period: 90s
       start_interval: 2s
+
+  # The realm's Keycloak on a server: it keeps its accounts in a database of
+  # its own and imports the realm only when it has none, the server copy of
+  # the realm, whose client secrets and addresses it fills in from here.
+  keycloak-server:
+    image: quay.io/keycloak/keycloak:26.2
+    profiles: [keycloak-server]
+    command: ["start", "--import-realm", "--http-port=8080"]
+    depends_on:
+      keycloak-postgres: {condition: service_healthy}
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # Browsers reach it at KEYCLOAK_URL through the proxy in front; the
+      # tools reach it as keycloak:8080, as OIDC_BACKCHANNEL says.
+      KC_HOSTNAME: ${KEYCLOAK_URL}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      DYNAMO_STATOR_CLIENT_SECRET: ${STATOR_OIDC_CLIENT_SECRET}
+      DYNAMO_ARMATURE_CLIENT_SECRET: ${ARMATURE_OIDC_CLIENT_SECRET}
+      DYNAMO_EXCITER_CLIENT_SECRET: ${EXCITER_OIDC_CLIENT_SECRET}
+      STATOR_URL: ${STATOR_URL}
+      ARMATURE_URL: ${ARMATURE_URL}
+      EXCITER_URL: ${EXCITER_URL}
+    volumes:
+      - ./keycloak/realm.server.json:/opt/keycloak/data/import/realm.json:ro
+    networks:
+      suite:
+        aliases: [keycloak]
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT}:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'exec 3<>/dev/tcp/127.0.0.1/9000; printf ''GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n'' >&3; grep -q UP <&3'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+      start_interval: 2s
+
+  keycloak-postgres:
+    <<: *postgres
+    command: ["postgres"]
+    profiles: [keycloak-server]
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak-postgres:/var/lib/postgresql/18/docker
+    networks: [suite]
+    healthcheck:
+      <<: *pg-health
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U keycloak -d keycloak"]
 
   # One object store for all three; each tool keeps its own bucket, which its
   # api makes when it is missing.
@@ -159,11 +221,12 @@ services:
     depends_on:
       stator-migrate: {condition: service_completed_successfully}
     environment:
-      STATOR_ENV: development
+      STATOR_ENV: ${DYNAMO_ENV}
+      STATOR_SECURE_COOKIES: ${SECURE_COOKIES}
       STATOR_DB_PRIMARY_URL: postgres://stator_app:${STATOR_APP_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
       STATOR_DB_ADMIN_URL: postgres://stator_admin:${STATOR_ADMIN_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
       STATOR_VALKEY_URL: redis://:${STATOR_VALKEY_PASSWORD}@valkey:6379/0
-      STATOR_APP_URL: http://localhost:${STATOR_WEB_PORT}
+      STATOR_APP_URL: ${STATOR_URL}
       STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
       STATOR_BOOTSTRAP_ORG_NAME: Stator
       STATOR_BOOTSTRAP_ADMIN_EMAIL: ${STATOR_ADMIN_EMAIL}
@@ -180,9 +243,11 @@ services:
       stator-converter: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
       keycloak: {condition: service_healthy, required: false}
+      keycloak-server: {condition: service_healthy, required: false}
       stator-seed: {condition: service_completed_successfully}
     environment: &stator-env
-      STATOR_ENV: development
+      STATOR_ENV: ${DYNAMO_ENV}
+      STATOR_SECURE_COOKIES: ${SECURE_COOKIES}
       STATOR_HTTP_ADDR: ":8080"
       STATOR_DB_PRIMARY_URL: postgres://stator_app:${STATOR_APP_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
       STATOR_DB_ADMIN_URL: postgres://stator_admin:${STATOR_ADMIN_DB_PASSWORD}@postgres-primary:5432/stator?sslmode=disable
@@ -193,14 +258,14 @@ services:
       STATOR_S3_SECRET_KEY: ${S3_SECRET_KEY}
       STATOR_CONVERTER_URL: http://converter:3000
       STATOR_RENDER_URL: http://render:8090
-      STATOR_APP_URL: http://localhost:${STATOR_WEB_PORT}
+      STATOR_APP_URL: ${STATOR_URL}
       STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
-      STATOR_SMTP_ADDR: mailpit:1025
-      STATOR_MAIL_FROM: Stator <no-reply@stator.test>
+      STATOR_SMTP_ADDR: ${SMTP_ADDR}
+      STATOR_MAIL_FROM: ${STATOR_MAIL_FROM}
       STATOR_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
       STATOR_OUTBOUND_ALLOW: armature-api,exciter-api,${OIDC_HOST}
-      STATOR_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
-      STATOR_EXCITER_BACKCHANNEL: http://localhost:${EXCITER_WEB_PORT}=http://exciter-api:8080
+      STATOR_ARMATURE_BACKCHANNEL: ${ARMATURE_URL}=http://armature-api:8080
+      STATOR_EXCITER_BACKCHANNEL: ${EXCITER_URL}=http://exciter-api:8080
       # What Stator names as its receiver when Armature makes Stator's webhook.
       STATOR_ARMATURE_WEBHOOK_URL: http://stator-api:8080/api/v1/armature/webhook
     networks:
@@ -298,9 +363,11 @@ services:
       armature-valkey: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
       keycloak: {condition: service_healthy, required: false}
+      keycloak-server: {condition: service_healthy, required: false}
       armature-migrate: {condition: service_completed_successfully}
     environment: &armature-env
-      ARMATURE_ENV: development
+      ARMATURE_ENV: ${DYNAMO_ENV}
+      ARMATURE_SECURE_COOKIES: ${SECURE_COOKIES}
       ARMATURE_HTTP_ADDR: ":8080"
       ARMATURE_NAME: Armature
       ARMATURE_DB_PRIMARY_URL: postgres://armature_app:${ARMATURE_APP_DB_PASSWORD}@postgres-primary:5432/armature?sslmode=disable
@@ -311,12 +378,17 @@ services:
       ARMATURE_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       ARMATURE_S3_SECRET_KEY: ${S3_SECRET_KEY}
       ARMATURE_RENDER_URL: http://render:8090
-      ARMATURE_APP_URL: http://localhost:${ARMATURE_WEB_PORT}
-      ARMATURE_OIDC_REDIRECT_URL: http://localhost:${ARMATURE_WEB_PORT}/api/v1/auth/oidc/callback
+      ARMATURE_APP_URL: ${ARMATURE_URL}
+      ARMATURE_OIDC_REDIRECT_URL: ${ARMATURE_URL}/api/v1/auth/oidc/callback
       ARMATURE_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
       ARMATURE_SECRET_KEY: ${ARMATURE_SECRET_KEY}
-      ARMATURE_SMTP_ADDR: mailpit:1025
-      ARMATURE_MAIL_FROM: Armature <no-reply@armature.test>
+      ARMATURE_SMTP_ADDR: ${SMTP_ADDR}
+      # Only Armature logs in to a mail server; Stator and Exciter need a
+      # relay that lets them send without.
+      ARMATURE_SMTP_USER: ${SMTP_USER:-}
+      ARMATURE_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ARMATURE_SMTP_TLS: ${SMTP_TLS:-starttls}
+      ARMATURE_MAIL_FROM: ${ARMATURE_MAIL_FROM}
       # The first account sets the installation up; dynamo-connect makes it.
       ARMATURE_SIGNUP: first
       # The webhooks go to the partners' apis and discovery to Keycloak,
@@ -414,7 +486,8 @@ services:
     depends_on:
       exciter-migrate: {condition: service_completed_successfully}
     environment:
-      EXCITER_ENV: development
+      EXCITER_ENV: ${DYNAMO_ENV}
+      EXCITER_SECURE_COOKIES: ${SECURE_COOKIES}
       EXCITER_NAME: Exciter
       EXCITER_DB_PRIMARY_URL: postgres://exciter_app:${EXCITER_APP_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
       EXCITER_DB_ADMIN_URL: postgres://exciter_admin:${EXCITER_ADMIN_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
@@ -432,9 +505,11 @@ services:
       exciter-valkey: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
       keycloak: {condition: service_healthy, required: false}
+      keycloak-server: {condition: service_healthy, required: false}
       exciter-seed: {condition: service_completed_successfully}
     environment: &exciter-env
-      EXCITER_ENV: development
+      EXCITER_ENV: ${DYNAMO_ENV}
+      EXCITER_SECURE_COOKIES: ${SECURE_COOKIES}
       EXCITER_HTTP_ADDR: ":8080"
       EXCITER_NAME: Exciter
       EXCITER_DB_PRIMARY_URL: postgres://exciter_app:${EXCITER_APP_DB_PASSWORD}@postgres-primary:5432/exciter?sslmode=disable
@@ -446,14 +521,14 @@ services:
       EXCITER_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       EXCITER_S3_SECRET_KEY: ${S3_SECRET_KEY}
       EXCITER_RENDER_URL: http://render:8090
-      EXCITER_APP_URL: http://localhost:${EXCITER_WEB_PORT}
-      EXCITER_SMTP_ADDR: mailpit:1025
-      EXCITER_MAIL_FROM: Exciter <no-reply@exciter.test>
+      EXCITER_APP_URL: ${EXCITER_URL}
+      EXCITER_SMTP_ADDR: ${SMTP_ADDR}
+      EXCITER_MAIL_FROM: ${EXCITER_MAIL_FROM}
       EXCITER_TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
       EXCITER_OIDC_BACKCHANNEL: ${OIDC_BACKCHANNEL}
       EXCITER_OUTBOUND_ALLOW: armature-api,stator-api,${OIDC_HOST}
-      EXCITER_ARMATURE_BACKCHANNEL: http://localhost:${ARMATURE_WEB_PORT}=http://armature-api:8080
-      EXCITER_STATOR_BACKCHANNEL: http://localhost:${STATOR_WEB_PORT}=http://stator-api:8080
+      EXCITER_ARMATURE_BACKCHANNEL: ${ARMATURE_URL}=http://armature-api:8080
+      EXCITER_STATOR_BACKCHANNEL: ${STATOR_URL}=http://stator-api:8080
     networks:
       exciter:
         aliases: [api]
@@ -504,22 +579,23 @@ services:
   # Connects the three through their admin APIs once all of them answer, and
   # exits; running it again changes only what differs.
   connect:
-    image: dynamo-connect:dev
+    image: ${DYNAMO_CONNECT_IMAGE}
     build:
       context: ../connect
-    # Run by make up after everything else is healthy, never by compose up.
+    # make up runs it after everything else is healthy; on a server the
+    # profile connect lets compose up run it, once the apis answer.
     profiles: [connect]
     depends_on:
       stator-api: {condition: service_healthy}
       armature-api: {condition: service_healthy}
       exciter-api: {condition: service_healthy}
-    environment:
+    environment: &connect-env
       DYNAMO_STATOR_API: http://stator-api:8080
       DYNAMO_ARMATURE_API: http://armature-api:8080
       DYNAMO_EXCITER_API: http://exciter-api:8080
-      DYNAMO_STATOR_URL: http://localhost:${STATOR_WEB_PORT}
-      DYNAMO_ARMATURE_URL: http://localhost:${ARMATURE_WEB_PORT}
-      DYNAMO_EXCITER_URL: http://localhost:${EXCITER_WEB_PORT}
+      DYNAMO_STATOR_URL: ${STATOR_URL}
+      DYNAMO_ARMATURE_URL: ${ARMATURE_URL}
+      DYNAMO_EXCITER_URL: ${EXCITER_URL}
       DYNAMO_STATOR_VERSION: ${STATOR_VERSION}
       DYNAMO_ARMATURE_VERSION: ${ARMATURE_VERSION}
       DYNAMO_EXCITER_VERSION: ${EXCITER_VERSION}
@@ -543,7 +619,52 @@ services:
     networks: [suite]
     restart: "no"
 
+  # The sample projects of DYNAMO_SAMPLE_SOURCES, after connect (README,
+  # "Sample data"); make sample-data runs connect sample-data instead.
+  sample-data:
+    image: ${DYNAMO_CONNECT_IMAGE}
+    profiles: [sample-data]
+    command: [sample-data]
+    depends_on:
+      connect: {condition: service_completed_successfully, required: false}
+    environment:
+      <<: *connect-env
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DYNAMO_SAMPLE_MAX_ISSUES: ${DYNAMO_SAMPLE_MAX_ISSUES:-500}
+    networks: [suite]
+    restart: "no"
+
+  # HTTPS in front of the three and Keycloak, at the addresses their URLs
+  # name, with certificates from Let's Encrypt; for a proxy of one's own,
+  # leave the profile caddy off and send each address to the web port.
+  caddy:
+    image: caddy:2.10.2-alpine
+    profiles: [caddy]
+    depends_on:
+      stator-web: {condition: service_healthy}
+      armature-web: {condition: service_healthy}
+      exciter-web: {condition: service_healthy}
+    environment:
+      STATOR_URL: ${STATOR_URL}
+      ARMATURE_URL: ${ARMATURE_URL}
+      EXCITER_URL: ${EXCITER_URL}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak.invalid}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [suite, stator, armature, exciter]
+    # CADDY_LISTEN, such as "127.0.0.1:", narrows where they are published.
+    ports:
+      - "${CADDY_LISTEN:-}${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_LISTEN:-}${CADDY_HTTPS_PORT:-443}:${CADDY_HTTPS_PORT:-443}"
+    restart: unless-stopped
+
 volumes:
+  keycloak-postgres:
+  caddy-data:
+  caddy-config:
   seaweedfs-data:
   stator-postgres:
   stator-valkey:

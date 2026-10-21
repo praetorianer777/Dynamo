@@ -305,14 +305,16 @@ expect_layers() { # label expected mode files...
 expect_layers "documentation alone"       "shell check-format"                    quick README.md docs/compatibility.md
 expect_layers "documentation, full"       "shell check-format"                    full  docs/compatibility.md
 expect_layers "dynamo-connect, quick"     "shell check-format check-go"           quick connect/main.go
-expect_layers "dynamo-connect, full"      "shell check-format check-go test-stack test-chart" full connect/main.go
+expect_layers "dynamo-connect, full"      "shell check-format check-go test-stack test-server test-chart" full connect/main.go
 expect_layers "the chart, full"           "shell check-format test-chart"         full  deploy/charts/dynamo/values.yaml
 expect_layers "the pins, quick"           "shell check-format"                    quick versions.yaml
-expect_layers "the pins, full"            "shell check-format test-stack test-chart" full versions.yaml
-expect_layers "the compose stack, full"   "shell check-format test-stack"         full  deploy/docker-compose.yml
+expect_layers "the pins, full"            "shell check-format test-stack test-server test-chart" full versions.yaml
+expect_layers "the compose stack, full"   "shell check-format test-stack test-server" full deploy/docker-compose.yml
+expect_layers "the server test, full"     "shell check-format test-server"        full  scripts/server-test.sh
+expect_layers "a make file, full"         "shell check-format test-stack test-server test-chart" full mk/stack.mk
 expect_layers "the shell tests"           "shell check-format"                    full  tests/test-versions.sh
 expect_layers "a path nobody listed"      "shell check-format check-go"           quick something/new.txt
-expect_layers "no files known, full"      "shell check-format check-go test-stack test-chart" full
+expect_layers "no files known, full"      "shell check-format check-go test-stack test-server test-chart" full
 "$LAYERS" bogus < /dev/null > /dev/null 2>&1 && { echo "FAIL  an unknown mode was accepted"; fail=1; }
 
 echo "== the gate is given those layers, and says what it skipped"
@@ -329,7 +331,7 @@ printf '#!/bin/sh\necho "$@" > "$GATE_ARGS"\n' > run-tests.sh; chmod +x run-test
 export GATE_ARGS="$W3/args"
 push_json() { jq -nc --arg cwd "$W3/r" --arg cmd "${1:-git push -u origin HEAD}" '{tool_name:"Bash",cwd:$cwd,tool_input:{command:$cmd}}'; }
 LOG3="$W3/r/.git/branch-guard.log"
-FULL="shell check-format check-go test-stack test-chart"
+FULL="shell check-format check-go test-stack test-server test-chart"
 ran() { # label expected-layers
   if [[ "$(cat "$GATE_ARGS" 2>/dev/null)" == "$2" ]]; then echo "ok    gate  $1"; else echo "FAIL  gate  $1 ran '$(cat "$GATE_ARGS" 2>/dev/null)'"; fail=1; fi
 }
