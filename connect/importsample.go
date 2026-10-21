@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // importer fills the three tools with one sample project each. Every step
@@ -19,6 +22,8 @@ type importer struct {
 	armatureURL, statorURL, exciterURL string
 	note                               func(string, ...any)
 	warn                               func(string, ...any)
+	// web fetches the pictures of issues; nil is a client of its own.
+	web *http.Client
 }
 
 // numbered is the marker a sample item carries in its title, as GitHub writes
@@ -172,12 +177,20 @@ func (im *importer) armatureIssues(ctx context.Context, p sampleProject) (map[in
 		return nil, err
 	}
 
+	types, err := im.armatureTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
 	have := map[int]armatureIssue{}
+	typed := map[int]string{}
 	for offset := 0; ; {
 		var page struct {
 			Issues []struct {
 				Key     string `json:"key"`
 				Summary string `json:"summary"`
+				Type    struct {
+					Name string `json:"name"`
+				} `json:"type"`
 			} `json:"issues"`
 			Total int `json:"total"`
 		}
@@ -188,6 +201,7 @@ func (im *importer) armatureIssues(ctx context.Context, p sampleProject) (map[in
 		for _, i := range page.Issues {
 			if n, ok := numberOf(i.Summary); ok {
 				have[n] = armatureIssue{key: i.Key, summary: i.Summary}
+				typed[n] = i.Type.Name
 			}
 		}
 		offset += len(page.Issues)
@@ -201,10 +215,21 @@ func (im *importer) armatureIssues(ctx context.Context, p sampleProject) (map[in
 		return nil, err
 	}
 	for _, i := range p.Issues {
-		if _, ok := have[i.Number]; ok {
+		want := types[i.kind()]
+		if issue, ok := have[i.Number]; ok {
+			// Earlier imports made every issue a Task; one somebody retyped stays as it is.
+			if typed[i.Number] == "Task" && i.kind() != "Task" && want != "" {
+				if err := im.armature.send(ctx, http.MethodPatch, "/issues/"+issue.key, map[string]string{"typeId": want}, nil); err != nil {
+					return nil, err
+				}
+				im.note("%s is a %s", issue.key, i.kind())
+			}
 			continue
 		}
 		body := map[string]any{"summary": markedTitle(i.Title, i.Number)}
+		if want != "" {
+			body["typeId"] = want
+		}
 		if doc := richText(i.Body); doc != nil {
 			body["description"] = doc
 		}
@@ -235,6 +260,24 @@ func (im *importer) armatureIssues(ctx context.Context, p sampleProject) (map[in
 		}
 	}
 	return have, nil
+}
+
+// armatureTypes are the ids of Armature's issue types by name.
+func (im *importer) armatureTypes(ctx context.Context) (map[string]string, error) {
+	var list struct {
+		IssueTypes []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"issueTypes"`
+	}
+	if err := im.armature.send(ctx, http.MethodGet, "/issue-types", nil, &list); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, t := range list.IssueTypes {
+		out[t.Name] = t.ID
+	}
+	return out, nil
 }
 
 func (im *importer) armatureLabels(ctx context.Context) (map[string]bool, error) {
@@ -369,7 +412,7 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 	}
 	home := space.Space.HomePageID
 
-	have, err := im.statorSources(ctx, p.Key)
+	have, alive, err := im.statorSources(ctx, p.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -384,13 +427,11 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 	for _, n := range nodes {
 		if id, ok := have[n.source]; ok {
 			ids[n.key] = id
-			// A run stopped between making a page and writing it left it at
-			// its first version; this one writes it.
-			written, err := im.statorWritten(ctx, id)
+			stale, err := im.statorStale(ctx, id, alive)
 			if err != nil {
 				return nil, err
 			}
-			if !written {
+			if stale {
 				write = append(write, n)
 			}
 			continue
@@ -470,8 +511,12 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 	return out, nil
 }
 
-// statorWritten says whether a page has a version beyond the empty one it was made with.
-func (im *importer) statorWritten(ctx context.Context, id string) (bool, error) {
+var pageID = regexp.MustCompile(`/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
+
+// statorStale says whether a page is to be written again: a run stopped
+// between making and writing it left it at its first version, or it links to
+// a page of the space that is gone, as one removed by hand.
+func (im *importer) statorStale(ctx context.Context, id string, alive map[string]bool) (bool, error) {
 	var current struct {
 		Page struct {
 			Version int `json:"version"`
@@ -480,7 +525,19 @@ func (im *importer) statorWritten(ctx context.Context, id string) (bool, error) 
 	if err := im.stator.send(ctx, http.MethodGet, "/pages/"+id, nil, &current); err != nil {
 		return false, err
 	}
-	return current.Page.Version > 1, nil
+	if current.Page.Version <= 1 {
+		return true, nil
+	}
+	var md []byte
+	if err := im.stator.send(ctx, http.MethodGet, "/pages/"+id+"/markdown", nil, &md); err != nil {
+		return false, err
+	}
+	for _, m := range pageID.FindAllSubmatchIndex(md, -1) {
+		if bytes.HasSuffix(md[:m[0]], []byte(im.statorURL)) && !alive[string(md[m[2]:m[3]])] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // folderMarkdown is the page of a folder without a doc of its own: a list of the pages under it.
@@ -496,8 +553,8 @@ func folderMarkdown(folder pageNode, nodes []pageNode, pageURL func(string) (str
 }
 
 // statorSources are the space's pages by the GitHub address of what each was
-// imported from, which every imported page links to.
-func (im *importer) statorSources(ctx context.Context, space string) (map[string]string, error) {
+// imported from, which every imported page links to, and the ids of all its pages.
+func (im *importer) statorSources(ctx context.Context, space string) (map[string]string, map[string]bool, error) {
 	// Every page of the outline, since pages of one title, as two folders'
 	// "Configuration", are pages of their own.
 	var outline struct {
@@ -506,11 +563,12 @@ func (im *importer) statorSources(ctx context.Context, space string) (map[string
 		} `json:"pages"`
 	}
 	if err := im.stator.send(ctx, http.MethodGet, "/spaces/"+space+"/outline", nil, &outline); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := map[string]string{}
+	out, alive := map[string]string{}, map[string]bool{}
 	for _, pg := range outline.Pages {
 		id := pg.ID
+		alive[id] = true
 		var list struct {
 			RemoteLinks []struct {
 				URL    string `json:"url"`
@@ -518,7 +576,7 @@ func (im *importer) statorSources(ctx context.Context, space string) (map[string
 			} `json:"remoteLinks"`
 		}
 		if err := im.stator.send(ctx, http.MethodGet, "/pages/"+id+"/remote-links", nil, &list); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, l := range list.RemoteLinks {
 			if l.Source == "GitHub" {
@@ -526,7 +584,7 @@ func (im *importer) statorSources(ctx context.Context, space string) (map[string
 			}
 		}
 	}
-	return out, nil
+	return out, alive, nil
 }
 
 // statorMarkdown publishes a doc as the next version of the page, through
@@ -619,16 +677,12 @@ func (im *importer) exciterRequirements(ctx context.Context, p sampleProject, is
 		}
 		key, ok := have[i.Number]
 		if !ok {
-			statement := strings.TrimSpace(i.Body)
-			if statement == "" {
-				statement = i.Title
-			}
 			var made struct {
 				Requirement struct {
 					Key string `json:"key"`
 				} `json:"requirement"`
 			}
-			body := map[string]string{"title": markedTitle(i.Title, i.Number), "statementMarkdown": truncate(withoutHTML(imagesAsLinks(statement)), maxText)}
+			body := map[string]string{"title": markedTitle(i.Title, i.Number), "statementMarkdown": statementOf(i, nil)}
 			err := im.exciter.send(ctx, http.MethodPost, "/projects/"+p.Key+"/requirements", body, &made)
 			if hasStatus(err, http.StatusUnprocessableEntity) {
 				im.warn("%s has no requirement in Exciter, which refused it: %v", p.sourceKey(i), err)
@@ -641,6 +695,7 @@ func (im *importer) exciterRequirements(ctx context.Context, p sampleProject, is
 			have[i.Number] = key
 			im.note("Exciter has %s from %s", key, p.sourceKey(i))
 		}
+		im.exciterPictures(ctx, key, i)
 		if issue, ok := issues[i.Number]; ok {
 			im.exciterTrace(ctx, key, "/armature-links", "issueKey", issue.key, "implements", issue.key)
 		}
@@ -735,20 +790,149 @@ const maxText = 20000
 var (
 	markdownImage = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)[^)]*\)`)
 	htmlImage     = regexp.MustCompile(`<img\b[^>]*\bsrc="([^"]+)"[^>]*>`)
+	htmlAlt       = regexp.MustCompile(`\balt="([^"]*)"`)
 )
 
-// imagesAsLinks turns a statement's pictures into links to them, since Exciter
-// shows only pictures attached to the requirement itself.
-func imagesAsLinks(md string) string {
-	md = markdownImage.ReplaceAllStringFunc(md, func(m string) string {
-		sub := markdownImage.FindStringSubmatch(m)
-		alt := sub[1]
+// statementOf is an issue's body as a requirement's statement, with the
+// pictures attached holds by their address shown and the others as links.
+func statementOf(i sampleIssue, attached map[string]string) string {
+	statement := strings.TrimSpace(i.Body)
+	if statement == "" {
+		statement = i.Title
+	}
+	return truncate(withoutHTML(withPictures(statement, attached)), maxText)
+}
+
+// pictureURLs are the addresses of the pictures a text shows, once each, in order.
+func pictureURLs(md string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, re := range []*regexp.Regexp{markdownImage, htmlImage} {
+		for _, m := range re.FindAllStringSubmatch(md, -1) {
+			u := m[len(m)-1]
+			if strings.HasPrefix(u, "https://") && !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+	}
+	return out
+}
+
+// withPictures shows each picture attached holds as that attachment and makes
+// the rest links, since Exciter shows only pictures attached to the requirement.
+func withPictures(md string, attached map[string]string) string {
+	spell := func(alt, src string) string {
+		if id, ok := attached[src]; ok {
+			return "![" + alt + "](exciter:attachment/" + id + ")"
+		}
 		if alt == "" {
 			alt = "image"
 		}
-		return "[" + alt + "](" + sub[2] + ")"
+		return "[" + alt + "](" + src + ")"
+	}
+	md = markdownImage.ReplaceAllStringFunc(md, func(m string) string {
+		sub := markdownImage.FindStringSubmatch(m)
+		return spell(sub[1], sub[2])
 	})
-	return htmlImage.ReplaceAllString(md, "[image]($1)")
+	return htmlImage.ReplaceAllStringFunc(md, func(m string) string {
+		alt := ""
+		if a := htmlAlt.FindStringSubmatch(m); a != nil {
+			alt = a[1]
+		}
+		return spell(alt, htmlImage.FindStringSubmatch(m)[1])
+	})
+}
+
+// maxPicture bounds one picture the import downloads.
+const maxPicture = 10 << 20
+
+// exciterPictures attaches the pictures of an issue to its requirement and
+// shows them in the statement. A requirement with attachments has them from
+// an earlier run, or from somebody, and is left alone; a picture that cannot
+// be had stays a link.
+func (im *importer) exciterPictures(ctx context.Context, key string, i sampleIssue) {
+	urls := pictureURLs(i.Body)
+	if len(urls) == 0 {
+		return
+	}
+	path := "/requirements/" + url.PathEscape(key)
+	var list struct {
+		Attachments []struct{} `json:"attachments"`
+	}
+	if err := im.exciter.send(ctx, http.MethodGet, path+"/attachments", nil, &list); err != nil {
+		im.warn("%s shows its pictures as links: %v", key, err)
+		return
+	}
+	if len(list.Attachments) > 0 {
+		return
+	}
+	attached := map[string]string{}
+	for n, u := range urls {
+		content, err := im.picture(ctx, u)
+		if err == nil {
+			var made struct {
+				Attachment struct {
+					ID string `json:"id"`
+				} `json:"attachment"`
+			}
+			err = im.exciter.upload(ctx, http.MethodPost, path+"/attachments", "file", fmt.Sprintf("picture-%d", n+1), content, &made)
+			attached[u] = made.Attachment.ID
+		}
+		if err != nil {
+			im.warn("%s shows the picture %s as a link: %v", key, u, err)
+			delete(attached, u)
+		}
+	}
+	if len(attached) == 0 {
+		return
+	}
+	var current struct {
+		Requirement struct {
+			Revision int `json:"revision"`
+		} `json:"requirement"`
+	}
+	err := im.exciter.send(ctx, http.MethodGet, path, nil, &current)
+	if err == nil {
+		body := map[string]any{"baseRevision": current.Requirement.Revision, "statementMarkdown": statementOf(i, attached)}
+		err = im.exciter.send(ctx, http.MethodPatch, path, body, nil)
+	}
+	if err != nil {
+		im.warn("%s has its pictures attached but shows them as links: %v", key, err)
+		return
+	}
+	im.note("%s shows %d pictures of its issue", key, len(attached))
+}
+
+// picture is the picture at u, refused when it is not one or too large.
+func (im *importer) picture(ctx context.Context, u string) ([]byte, error) {
+	client := im.web
+	if client == nil {
+		client = &http.Client{Timeout: time.Minute}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("it answered %s", resp.Status)
+	}
+	content, err := io.ReadAll(io.LimitReader(resp.Body, maxPicture+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > maxPicture {
+		return nil, fmt.Errorf("it is larger than %d MB", maxPicture>>20)
+	}
+	if kind := http.DetectContentType(content); !strings.HasPrefix(kind, "image/") && !bytes.Contains(content[:min(len(content), 512)], []byte("<svg")) {
+		return nil, fmt.Errorf("it is %s, not a picture", kind)
+	}
+	return content, nil
 }
 
 var (

@@ -91,6 +91,21 @@ func (i sampleIssue) feature() bool {
 	return false
 }
 
+var bugLabel = regexp.MustCompile(`(?i)\bbug\b`)
+
+// kind is the Armature issue type an issue becomes: Bug for a bug, Story for a feature, else Task.
+func (i sampleIssue) kind() string {
+	for _, l := range i.Labels {
+		if bugLabel.MatchString(l) {
+			return "Bug"
+		}
+	}
+	if i.feature() {
+		return "Story"
+	}
+	return "Task"
+}
+
 // title is a doc's front matter title, else its first heading, else its file
 // name, or its folder's for a README or index.
 func (d sampleDoc) title() string {

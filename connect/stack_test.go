@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"html"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -227,19 +228,25 @@ func TestStackTheSampleIsInAllThree(t *testing.T) {
 		Issues []struct {
 			Key     string `json:"key"`
 			Summary string `json:"summary"`
+			Type    struct {
+				Name string `json:"name"`
+			} `json:"type"`
 		} `json:"issues"`
 	}
 	if err := im.armature.send(ctx, http.MethodGet, "/projects/SPARK/issues?limit=100", nil, &issues); err != nil {
 		t.Fatal(err)
 	}
-	keys := map[int]string{}
+	keys, kinds := map[int]string{}, map[int]string{}
 	for _, i := range issues.Issues {
 		if n, ok := numberOf(i.Summary); ok {
-			keys[n] = i.Key
+			keys[n], kinds[n] = i.Key, i.Type.Name
 		}
 	}
 	if len(keys) != 4 {
 		t.Fatalf("Armature's SPARK has the sample issues %v, want #1 to #4", keys)
+	}
+	if want := map[int]string{1: "Story", 2: "Bug", 3: "Story", 4: "Task"}; !maps.Equal(kinds, want) {
+		t.Errorf("the sample issues have the types %v, want %v from their labels", kinds, want)
 	}
 	links := func(s *session, path string) string {
 		t.Helper()
