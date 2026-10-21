@@ -1,0 +1,52 @@
+{{- $armatureAdmin := printf "%s-armature-admin" .Release.Name }}
+{{- $demo := and .Values.keycloak.enabled .Values.keycloak.demoUsers }}
+{{- $signIn := .Values.check.signIn }}
+# helm test: every webhook dynamo-connect made delivers, and one sign-in
+# through the realm opens all three, from inside the cluster at the tools'
+# own addresses.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-check
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: dynamo-check
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: check
+      image: "{{ .Values.connect.image.repository }}:{{ .Values.connect.image.tag | default .Chart.AppVersion }}"
+      imagePullPolicy: {{ .Values.connect.image.pullPolicy }}
+      command: [/usr/local/bin/dynamo-check, -test.v, -test.count=1, -test.run, Stack]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      env:
+        {{- range $d := .Chart.Dependencies }}
+        {{- $t := $d.Name }}
+        {{- $T := upper $t }}
+        - { name: {{ $T }}_URL, value: {{ include "dynamo.toolURL" (dict "root" $ "tool" $t) | quote }} }
+        {{- $admin := ternary $armatureAdmin (printf "%s-bootstrap-admin" $t) (eq $t "armature") }}
+        - name: {{ $T }}_ADMIN_EMAIL
+          valueFrom: { secretKeyRef: { name: {{ $admin }}, key: username } }
+        - name: {{ $T }}_ADMIN_PASSWORD
+          valueFrom: { secretKeyRef: { name: {{ $admin }}, key: password } }
+        {{- end }}
+        {{- if $signIn.email }}
+        - { name: SIGNIN_EMAIL, value: {{ $signIn.email | quote }} }
+        - name: SIGNIN_PASSWORD
+          valueFrom: { secretKeyRef: { name: {{ required "Set check.signIn.passwordSecret, the Secret holding check.signIn.email's password under the key password." $signIn.passwordSecret }}, key: password } }
+        {{- else if not $demo }}
+        - { name: SIGNIN_EMAIL, value: "" }
+        {{- end }}
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits: { memory: 128Mi }

@@ -5,9 +5,12 @@ WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dynamo-connect .
+# The stack checks, which the chart's helm test runs against the installed suite.
+RUN CGO_ENABLED=0 go test -c -tags stack -trimpath -ldflags="-s -w" -o /dynamo-check .
 
 FROM alpine:3.22
 RUN adduser -D -u 10001 dynamo
 COPY --from=build /dynamo-connect /usr/local/bin/dynamo-connect
+COPY --from=build /dynamo-check /usr/local/bin/dynamo-check
 USER dynamo
 ENTRYPOINT ["/usr/local/bin/dynamo-connect"]

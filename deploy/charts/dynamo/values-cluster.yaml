@@ -1,0 +1,83 @@
+# What an install into a real cluster sets on top of values.yaml: copy it,
+# replace every example.com address and every CHANGE-ME, and install with
+#   helm install dynamo oci://ghcr.io/praetorianer777/charts/dynamo \
+#     --version <version> -n dynamo --create-namespace -f values-cluster.yaml
+# docs/deploying.md walks through it and the check afterwards.
+
+keycloak:
+  ingress:
+    enabled: true
+    className: nginx
+    host: sso.example.com
+    # cert-manager issues the certificate into secretName; without it, create
+    # that Secret yourself.
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tls: { enabled: true, secretName: keycloak-tls }
+  # The demo users (alice, bob, carol, dave) have known passwords.
+  demoUsers: false
+
+oidc:
+  clients:
+    stator: { id: stator, secret: CHANGE-ME }
+    armature: { id: armature, secret: CHANGE-ME }
+    exciter: { id: exciter, secret: CHANGE-ME }
+
+# The realm's people let into all three; stator.bootstrap.members and
+# exciter.bootstrap.members below must be the same list.
+members:
+  - { email: admin@example.com, role: admin }
+
+objectStore:
+  accessKey: dynamo
+  secretKey: CHANGE-ME
+  storage: 50Gi
+
+# Without demo users, helm test signs in as this account of the realm, with
+# the password from the Secret's key password; leave email empty to check the
+# webhooks only.
+check:
+  signIn:
+    email: ""
+    passwordSecret: ""
+
+stator:
+  ingress:
+    className: nginx
+    host: stator.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tls: { enabled: true, secretName: stator-tls }
+  secrets:
+    s3AccessKey: dynamo
+    s3SecretKey: CHANGE-ME
+  bootstrap:
+    admin: { email: admin@example.com }
+    members:
+      - { email: admin@example.com, role: admin }
+
+armature:
+  ingress:
+    className: nginx
+    host: armature.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tls: { enabled: true, secretName: armature-tls }
+  secrets:
+    s3AccessKey: dynamo
+    s3SecretKey: CHANGE-ME
+
+exciter:
+  ingress:
+    className: nginx
+    host: exciter.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tls: { enabled: true, secretName: exciter-tls }
+  secrets:
+    s3AccessKey: dynamo
+    s3SecretKey: CHANGE-ME
+  bootstrap:
+    admin: { email: admin@example.com }
+    members:
+      - { email: admin@example.com, role: admin }

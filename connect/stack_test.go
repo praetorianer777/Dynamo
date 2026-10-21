@@ -1,9 +1,9 @@
 //go:build stack
 
-// The checks on a running stack, compose or the chart in kind: they need
-// DYNAMO_STACK_ENV, a file of NAME=value lines with the tools' addresses and
-// administrators, and with the chart DYNAMO_HOSTS, host:port=address pairs
-// that send each Service name to its port-forward.
+// The checks on a running stack, compose or the chart: the tools' addresses
+// and administrators come as NAME=value lines from the file DYNAMO_STACK_ENV
+// names, or without it from the environment, as helm test gives them. With
+// DYNAMO_HOSTS, host:port=address pairs, a Service name is sent elsewhere.
 package main
 
 import (
@@ -24,12 +24,24 @@ import (
 
 func stackEnv(t *testing.T) map[string]string {
 	t.Helper()
-	f, err := os.Open(os.Getenv("DYNAMO_STACK_ENV"))
+	env := map[string]string{}
+	name := os.Getenv("DYNAMO_STACK_ENV")
+	if name == "" {
+		for _, kv := range os.Environ() {
+			if k, v, ok := strings.Cut(kv, "="); ok {
+				env[k] = v
+			}
+		}
+		if env["STATOR_URL"] == "" {
+			t.Fatal("STATOR_URL is not set: give the addresses in the environment or a file in DYNAMO_STACK_ENV")
+		}
+		return env
+	}
+	f, err := os.Open(name)
 	if err != nil {
 		t.Fatalf("the stack is not up (%v); run make up first", err)
 	}
 	defer f.Close()
-	env := map[string]string{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		if k, v, ok := strings.Cut(sc.Text(), "="); ok {
@@ -63,13 +75,21 @@ var loginForm = regexp.MustCompile(`<form[^>]*id="kc-form-login"[^>]*action="([^
 
 var products = []string{"stator", "armature", "exciter"}
 
-// TestStackOneSignInThroughTheRealmOpensAllThree signs alice in to Stator with
-// her password at Keycloak, then into Armature and Exciter on the same browser
-// session, where Keycloak must not ask again.
+// TestStackOneSignInThroughTheRealmOpensAllThree signs a person in to Stator
+// with their password at Keycloak, then into Armature and Exciter on the same
+// browser session, where Keycloak must not ask again. The person is the demo
+// realm's alice unless SIGNIN_EMAIL names another; set empty, it is skipped.
 func TestStackOneSignInThroughTheRealmOpensAllThree(t *testing.T) {
 	env := stackEnv(t)
 	b := browser()
-	const email, password = "alice@suite.test", "alice password"
+	email, named := env["SIGNIN_EMAIL"]
+	password := env["SIGNIN_PASSWORD"]
+	if !named {
+		email, password = "alice@suite.test", "alice password"
+	}
+	if email == "" {
+		t.Skip("no account to sign in with: set SIGNIN_EMAIL and SIGNIN_PASSWORD to check the sign-in")
+	}
 
 	for i, product := range products {
 		base := env[strings.ToUpper(product)+"_URL"]
@@ -94,7 +114,7 @@ func TestStackOneSignInThroughTheRealmOpensAllThree(t *testing.T) {
 			body, _ = io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if loginForm.Match(body) {
-				t.Fatalf("%s: Keycloak refused alice's password", product)
+				t.Fatalf("%s: Keycloak refused %s's password", product, email)
 			}
 		}
 		if !strings.HasPrefix(resp.Request.URL.String(), base) {
