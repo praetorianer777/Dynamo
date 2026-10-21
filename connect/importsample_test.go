@@ -67,3 +67,19 @@ func TestAGitHubLabelBecomesOneWordForArmature(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestAStatementLinksToItsPictures(t *testing.T) {
+	got := imagesAsLinks("See ![the chart](https://x/a.png \"t\") and ![](https://x/b.png).\n<img width=\"300\" src=\"https://x/c.png\" alt=\"c\">")
+	want := "See [the chart](https://x/a.png) and [image](https://x/b.png).\n[image](https://x/c.png)"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAStatementKeepsItsTextWithoutHTML(t *testing.T) {
+	in := "<!-- template -->\n<details><summary>Logs</summary>\nline one<br>line two\n</details>\nUse `List<T>` here.\n```html\n<div>kept</div>\n```"
+	want := "\nLogs\nline one  \nline two\n\nUse `List<T>` here.\n```html\n<div>kept</div>\n```"
+	if got := withoutHTML(in); got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}

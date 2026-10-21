@@ -280,6 +280,15 @@ func TestStackTheSampleIsInAllThree(t *testing.T) {
 			t.Errorf("Stator's SPARK has no page %q among %v", title, pages)
 		}
 	}
+	notes := 0
+	for _, pg := range outline.Pages {
+		if pg.Title == "Notes" {
+			notes++
+		}
+	}
+	if notes != 2 {
+		t.Errorf("Stator's SPARK has %d pages called Notes, want the two of the repository and the site, once each", notes)
+	}
 	for page, folder := range map[string]string{"Configuration": "Docs", "Installing Sparkplug": "docs.sparkplug.example", "Docs": "Sparkplug"} {
 		if parents[pages[page]] != pages[folder] {
 			t.Errorf("the page %s is not under %s", page, folder)
