@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # deploy/keycloak/realm.json is the canonical copy of the realm the three tools
 # share; their copies are checked against it in their own repositories. Here:
-# it is the realm dynamo, with a client for each tool, and every issuer the
-# stack names is that realm.
+# it is the realm dynamo, with a client for each tool, each client's tokens
+# carry the audiences of the partners it exchanges them at, and every issuer
+# the stack names is that realm.
 #
-# Needs bash and grep only; no stack and no network.
+# Needs bash, grep and awk only; no stack and no network.
 set -u
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,6 +24,12 @@ name="$(grep -m1 -oE '^  "realm": "[^"]*"' "${SRC}/${REALM_FILE}" | cut -d'"' -f
 for client in stator armature exciter; do
   grep -qE "\"clientId\": \"${client}\"" "${SRC}/${REALM_FILE}" && pass "it has the client ${client}" \
     || fail "${REALM_FILE} has no client ${client}, so ${client} cannot sign in through it."
+done
+
+audiences=$(awk -F'"' '/"clientId":/ {client = $4} /"included.client.audience":/ {print client ":" $4}' "${SRC}/${REALM_FILE}")
+for pair in stator:armature stator:exciter exciter:armature exciter:stator armature:exciter; do
+  grep -qx "$pair" <<< "$audiences" && pass "${pair%:*}'s tokens are meant for ${pair#*:} too" \
+    || fail "${REALM_FILE} has no audience mapper on the client ${pair%:*} for ${pair#*:}, so ${pair#*:} refuses ${pair%:*}'s token exchange; add one (docs/keycloak.md)."
 done
 
 stale=$(cd "$SRC" && grep -rnE '/realms/[A-Za-z0-9_-]+' deploy mk Makefile README.md \

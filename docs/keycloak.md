@@ -53,12 +53,14 @@ from `OIDC_ISSUER` or `OIDC_BACKCHANNEL`.
 
 ## Connecting people at sign-in
 
-Once the tools connect people to each other at sign-in by token exchange
-(see `oauth.token-exchange@1` in `docs/compatibility.md`), the realm also
-needs an audience mapper on each client for the partners it calls:
+The tools connect people to each other at sign-in by token exchange (see
+`oauth.token-exchange@1` in `docs/compatibility.md`). A tool takes a
+partner's token only if its `aud` holds the tool's own client, so each client
+carries an audience mapper for the partners it exchanges at:
 
 - `stator`: audiences `armature` and `exciter`;
-- `exciter`: audiences `armature` and `stator`.
+- `exciter`: audiences `armature` and `stator`;
+- `armature`: audience `exciter`.
 
 Without them a sign-in still works; the partner simply refuses the exchange
 and the person connects by hand.
