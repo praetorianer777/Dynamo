@@ -8,7 +8,7 @@ test-chart: ## Install the umbrella chart into kind and check the three come up 
 	[ -n "$$DYNAMO_FROM_RELEASE" ] || docker build -q -t $(CONNECT_IMAGE) $(ROOT)/connect >/dev/null
 	docker build -q -t $(KIND_TOOLS_IMAGE) $(ROOT)/scripts/kind >/dev/null
 	docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v $(ROOT):/work:ro \
-		-e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_FROM_RELEASE -e DYNAMO_KEEP_CLUSTER \
+		-e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_FROM_RELEASE -e DYNAMO_EXISTING_SECRETS -e DYNAMO_KEEP_CLUSTER \
 		-e DYNAMO_STATOR_SOURCE -e DYNAMO_ARMATURE_SOURCE -e DYNAMO_EXCITER_SOURCE $(KIND_TOOLS_IMAGE) /work/scripts/chart-test.sh
 
 CHART_VERSION := $(shell sed -n 's/^version: *//p' $(ROOT)/deploy/charts/dynamo/Chart.yaml)

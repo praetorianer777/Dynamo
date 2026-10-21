@@ -1,16 +1,21 @@
 {{- include "dynamo.checks" . }}
 {{- if .Values.objectStore.enabled }}
 {{- $o := .Values.objectStore }}
+{{- $secret := include "dynamo.objectStoreSecret" . }}
+{{- if not $o.existingSecret }}
+# The same keys the tools' charts read from secrets.existingSecret, so one
+# Secret made beforehand serves the store and all three.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ .Release.Name }}-object-store
+  name: {{ $secret }}
   labels:
     {{- include "dynamo.labels" . | nindent 4 }}
 stringData:
-  access-key: {{ $o.accessKey | quote }}
-  secret-key: {{ $o.secretKey | quote }}
+  s3-access-key: {{ $o.accessKey | quote }}
+  s3-secret-key: {{ $o.secretKey | quote }}
 ---
+{{- end }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -54,9 +59,9 @@ spec:
           args: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
           env:
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: { secretKeyRef: { name: {{ .Release.Name }}-object-store, key: access-key } }
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: s3-access-key } }
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: {{ .Release.Name }}-object-store, key: secret-key } }
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: s3-secret-key } }
           ports:
             - { name: s3, containerPort: 8333 }
           readinessProbe:

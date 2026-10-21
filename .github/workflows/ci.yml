@@ -43,6 +43,15 @@ jobs:
   chart:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # Once with every secret a value, once with every secret a Secret made
+    # before the install.
+    strategy:
+      fail-fast: false
+      matrix:
+        secrets: [values, existing]
+    name: chart (${{ matrix.secrets }} secrets)
+    env:
+      DYNAMO_EXISTING_SECRETS: ${{ matrix.secrets == 'existing' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       # The same as the stack job, and the tools' charts come from source too.

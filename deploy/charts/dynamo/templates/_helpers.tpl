@@ -34,12 +34,42 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- else -}}{{- randAlphaNum 32 -}}{{- end -}}
 {{- end -}}
 
+{{/* The Secrets the suite's own secrets are read from: one made beforehand when named, else the chart's. */}}
+{{- define "dynamo.oidcSecret" -}}
+{{- .Values.oidc.existingSecret | default (printf "%s-connect" .Release.Name) -}}
+{{- end -}}
+
+{{- define "dynamo.keycloakAdminSecret" -}}
+{{- .Values.keycloak.admin.existingSecret | default (printf "%s-keycloak-admin" .Release.Name) -}}
+{{- end -}}
+
+{{- define "dynamo.armatureAdminSecret" -}}
+{{- .Values.armatureAdmin.existingSecret | default (printf "%s-armature-admin" .Release.Name) -}}
+{{- end -}}
+
+{{- define "dynamo.objectStoreSecret" -}}
+{{- .Values.objectStore.existingSecret | default (printf "%s-object-store" .Release.Name) -}}
+{{- end -}}
+
+{{/* The Secret holding a tool's administrator, which the connect Job and helm test sign in with. */}}
+{{- define "dynamo.adminSecret" -}}
+{{- if eq .tool "armature" -}}{{- include "dynamo.armatureAdminSecret" .root -}}
+{{- else -}}{{- printf "%s-bootstrap-admin" .tool -}}{{- end -}}
+{{- end -}}
+
 {{/* Values the tools' charts take separately but must agree on. */}}
 {{- define "dynamo.checks" -}}
 {{- if .Values.objectStore.enabled -}}
+{{- $o := .Values.objectStore -}}
 {{- range $t := list "stator" "armature" "exciter" -}}
 {{- $s := index $.Values $t "secrets" -}}
-{{- if or (ne $s.s3AccessKey $.Values.objectStore.accessKey) (ne $s.s3SecretKey $.Values.objectStore.secretKey) -}}
+{{- if $o.existingSecret -}}
+{{- if or (ne (toString $s.create) "false") (ne $s.existingSecret $o.existingSecret) -}}
+{{- fail (printf "Set %s.secrets.create to false and %s.secrets.existingSecret to %s, objectStore.existingSecret, or %s's uploads are refused by the store." $t $t $o.existingSecret $t) -}}
+{{- end -}}
+{{- else if $s.existingSecret -}}
+{{- fail (printf "%s.secrets.existingSecret names a Secret the bundled store does not read; set objectStore.existingSecret to the same Secret, or turn objectStore.enabled off for an S3 of your own." $t) -}}
+{{- else if or (ne $s.s3AccessKey $o.accessKey) (ne $s.s3SecretKey $o.secretKey) -}}
 {{- fail (printf "%s.secrets.s3AccessKey and s3SecretKey must be objectStore.accessKey and secretKey, or %s's uploads are refused by the store." $t $t) -}}
 {{- end -}}
 {{- end -}}

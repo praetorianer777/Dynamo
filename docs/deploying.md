@@ -44,6 +44,26 @@ Each tool's administrator is kept in a Secret: `stator-bootstrap-admin`,
 `exciter-bootstrap-admin` and `dynamo-armature-admin`. Keycloak's admin is
 kept in `dynamo-keycloak-admin`.
 
+## Secrets made beforehand
+
+Every secret can come from a Secret that exists before the install instead of
+a value, so a values file holds none, and External Secrets, Sealed Secrets, a
+vault or `kubectl` can make them. `scripts/create-secrets.sh` asks for each
+one, or generates it, and makes them; with `--print` it writes them as YAML
+instead, and `--own-s3` makes one key pair per tool for an S3 of your own.
+
+| Value | Secret's keys | Holds |
+| --- | --- | --- |
+| `oidc.existingSecret` | `stator-client-secret`, `armature-client-secret`, `exciter-client-secret` | the OIDC clients' secrets; the bundled Keycloak imports them from its environment |
+| `keycloak.admin.existingSecret` | `username`, `password` | Keycloak's administrator |
+| `armatureAdmin.existingSecret` | `username` (the email), `password` | Armature's owner |
+| `objectStore.existingSecret` | `s3-access-key`, `s3-secret-key` | the bundled store's keys |
+| `<tool>.secrets.existingSecret`, with `<tool>.secrets.create: false` | `s3-access-key`, `s3-secret-key` | a tool's S3 keys |
+
+With the bundled store, each tool names the store's Secret, since the store
+has one key pair; the chart refuses anything else. With an S3 of your own
+(`objectStore.enabled: false`), each tool names its own.
+
 ## Upgrade
 
 `helm upgrade` with a newer chart version runs the tools' migrations and then
