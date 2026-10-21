@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -50,20 +51,41 @@ func hasStatus(err error, status int) bool {
 }
 
 func (s *session) send(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(raw)
+	if body == nil {
+		return s.do(ctx, method, path, "", nil, out)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, s.base+path, reader)
+	raw, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	return s.do(ctx, method, path, "application/json", bytes.NewReader(raw), out)
+}
+
+// upload sends one file as the multipart part field, as the tools' import endpoints take it.
+func (s *session) upload(ctx context.Context, method, path, field, filename string, content []byte, out any) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile(field, filename)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(content); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return s.do(ctx, method, path, w.FormDataContentType(), &buf, out)
+}
+
+// do sends one request; out as *[]byte takes the answer as it is, anything else decodes it from JSON.
+func (s *session) do(ctx context.Context, method, path, contentType string, body io.Reader, out any) error {
+	req, err := http.NewRequestWithContext(ctx, method, s.base+path, body)
+	if err != nil {
+		return err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	req.Header.Set("Accept", "application/json")
 	for name, value := range s.cookies {
@@ -84,6 +106,10 @@ func (s *session) send(ctx context.Context, method, path string, body, out any) 
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= http.StatusBadRequest {
 		return &refusal{product: s.product, method: method, path: path, status: resp.StatusCode, body: strings.TrimSpace(string(raw))}
+	}
+	if text, ok := out.(*[]byte); ok {
+		*text = raw
+		return nil
 	}
 	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {

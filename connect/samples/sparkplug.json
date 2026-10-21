@@ -1,0 +1,85 @@
+{
+  "repo": "dynamo-sample/sparkplug",
+  "key": "SPARK",
+  "name": "Sparkplug",
+  "commit": "0000000000000000000000000000000000000001",
+  "license": "CC0-1.0, written for Dynamo's tests",
+  "issues": [
+    {
+      "number": 1,
+      "title": "Charge from surplus solar power",
+      "body": "When the inverter reports more power than the house uses, the charger should start and follow the surplus.",
+      "labels": [
+        "enhancement"
+      ],
+      "closed": true,
+      "milestone": "1.0"
+    },
+    {
+      "number": 2,
+      "title": "The app shows the wrong state of charge after a reconnect",
+      "body": "After the car reconnects, the app keeps the value from before until the next poll. Seen while testing the surplus charging of #1.",
+      "labels": [
+        "bug"
+      ],
+      "closed": false
+    },
+    {
+      "number": 3,
+      "title": "Plan charging to be ready by a departure time",
+      "body": "Given a departure time and a target state of charge, charge in the cheapest hours that still reach it. It builds on the surplus charging of #1.",
+      "labels": [
+        "feature",
+        "planning"
+      ],
+      "closed": false,
+      "milestone": "1.1"
+    },
+    {
+      "number": 4,
+      "title": "Document the MQTT topics",
+      "body": "Every topic the charger publishes, with its unit.",
+      "labels": [
+        "docs"
+      ],
+      "closed": false
+    }
+  ],
+  "docs": [
+    {
+      "path": "README.md",
+      "markdown": "# Sparkplug\n\nSparkplug charges an electric car from what the roof makes. Surplus charging came with #1, and departure planning is #3.\n\nSee [the configuration](docs/configuration.md). Install it as the [installation guide](https://docs.sparkplug.example/en/docs/install) says; the [chargers](https://docs.sparkplug.example/en/docs/devices/chargers) are listed on the site.\n\nKnown problem: [a stale value after reconnecting](https://github.com/dynamo-sample/sparkplug/issues/2).\n"
+    },
+    {
+      "path": "docs/configuration.md",
+      "markdown": "# Configuration\n\nThe charger, the inverter and the car are set in `sparkplug.yaml`.\n\n## Topics\n\nThe MQTT topics are still to be written down (#4)."
+    },
+    {
+      "path": "docs/topics.md",
+      "markdown": "# MQTT topics\n\nEvery topic the charger publishes, with its unit, as asked in #4. Where each is set is in [the configuration](configuration.md#topics).\n"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "markdown": "# Changelog\n\n## 1.0\n\n- Charge from surplus solar power (#1)."
+    },
+    {
+      "path": "docs.sparkplug.example/install.md",
+      "markdown": "---\ntitle: Installing Sparkplug\n---\nPut `sparkplug.yaml` next to the binary; [the configuration](https://github.com/dynamo-sample/sparkplug/blob/main/docs/configuration.md) says what goes in it.\n",
+      "repo": "dynamo-sample/sparkplug-docs",
+      "file": "content/en/install.md"
+    },
+    {
+      "path": "docs.sparkplug.example/faq.md",
+      "markdown": "---\ntitle: Questions\n---\nSparkplug starts charging once the surplus has lasted a minute; see [installing](/en/docs/install/).\n",
+      "repo": "dynamo-sample/sparkplug-docs",
+      "file": "content/en/faq.md"
+    }
+  ],
+  "sites": [
+    {
+      "url": "https://docs.sparkplug.example",
+      "repo": "dynamo-sample/sparkplug-docs",
+      "dir": "content/en"
+    }
+  ]
+}

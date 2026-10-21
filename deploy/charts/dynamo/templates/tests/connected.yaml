@@ -39,6 +39,9 @@ spec:
         - name: {{ $T }}_ADMIN_PASSWORD
           valueFrom: { secretKeyRef: { name: {{ $admin }}, key: password } }
         {{- end }}
+        {{- if .Values.sampleData.enabled }}
+        - { name: DYNAMO_SAMPLE_SOURCES, value: {{ toJson .Values.sampleData.sources | quote }} }
+        {{- end }}
         {{- if $signIn.email }}
         - { name: SIGNIN_EMAIL, value: {{ $signIn.email | quote }} }
         - name: SIGNIN_PASSWORD

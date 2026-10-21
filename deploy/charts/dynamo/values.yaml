@@ -97,6 +97,40 @@ connect:
   # How long the Job waits for the three apis after the tools' own hooks.
   wait: 15m
 
+# Sample projects imported into all three after they are connected: each
+# source becomes an Armature project with its issues, a Stator space with its
+# documentation and, for issues labelled feature or enhancement, Exciter
+# requirements, linked to each other; links between the docs lead to their
+# Stator pages. A source is sparkplug (a small built-in project, no network
+# needed), one of evcc, armature, stator, exciter and dynamo, or
+# any public owner/repo on GitHub; owner/repo=KEY chooses its project key.
+# evcc brings its docs site too. Another project's site is
+# named as an object:
+#   - repo: owner/tool
+#     key: TOOL
+#     docs: { url: https://docs.tool.example, repo: owner/tool-docs, dir: content/en }
+# Reruns on upgrade find what is there already.
+sampleData:
+  enabled: false
+  sources: [sparkplug]
+  # The newest issues of each GitHub source, 0 for all of them.
+  maxIssuesPerSource: 500
+  github:
+    # A Secret with a GitHub token under the key token. Without one GitHub
+    # allows 60 requests an hour, enough for a source or two of a few hundred
+    # issues.
+    tokenSecret: ""
+
+# An HTTP proxy for what Dynamo's own Jobs fetch from the internet, which
+# today is the sample data from GitHub. The suite's own Services and the
+# cluster's names are always reached directly; noProxy adds more hosts,
+# domains (.example.com) or CIDRs, comma-separated. The tools' charts take
+# no proxy of their own.
+proxy:
+  http: ""
+  https: ""
+  noProxy: ""
+
 # helm test checks every webhook and one sign-in through the realm. The
 # sign-in uses the demo realm's alice; without the demo users, name an account
 # of the realm here and a Secret with its password under the key password, or

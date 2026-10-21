@@ -2,7 +2,8 @@
 # Installs deploy/charts/dynamo into a kind cluster, as an operator would, and
 # checks that the three tools come up connected: the connect Job ran, helm
 # test finds one sign-in through the realm opens all three and every webhook
-# delivers, and an upgrade runs the Job again without anything left to change.
+# delivers, the sample project is in all three, and an upgrade runs the Jobs
+# again without anything left to change.
 #
 # Runs in the image from scripts/kind/Dockerfile (make test-chart), with the
 # repository at /work, the host's Docker socket and the host's network. A
@@ -112,6 +113,18 @@ start=$SECONDS
 helm install "$RELEASE" "$WORK/chart" -n "$NS" "${VALUES[@]}" --timeout 30m
 echo "   installed and connected in $((SECONDS - start))s"
 kubectl -n "$NS" logs "job/$RELEASE-connect" | sed 's/^/   /'
+# A release older than the sample data has no such Job, nor checks it.
+sample=1
+if ! helm get hooks "$RELEASE" -n "$NS" | grep -q "name: $RELEASE-sample-data"; then
+  if [[ -z "${DYNAMO_FROM_RELEASE:-}" ]]; then
+    echo "   the chart made no sample-data Job, though the test values enable it"
+    exit 1
+  fi
+  sample=
+  echo "   this release imports no sample data"
+else
+  kubectl -n "$NS" logs "job/$RELEASE-sample-data" | sed 's/^/   /'
+fi
 for t in stator armature exciter; do
   kubectl -n "$NS" rollout status "deploy/$t-api" --timeout=300s >/dev/null
   kubectl -n "$NS" rollout status "deploy/$t-web" --timeout=300s >/dev/null
@@ -142,6 +155,16 @@ else
   echo "   the connect Job changed something on the upgrade, so the install did not leave the tools connected:"
   sed 's/^/   /' <<< "$log"
   exit 1
+fi
+if [[ -n "$sample" ]]; then
+  log=$(kubectl -n "$NS" logs "job/$RELEASE-sample-data")
+  if grep -q "imported already; nothing changed" <<< "$log"; then
+    echo "   the sample-data Job ran again and found the sample there"
+  else
+    echo "   the sample-data Job changed something on the upgrade, so the install did not finish the import:"
+    sed 's/^/   /' <<< "$log"
+    exit 1
+  fi
 fi
 
 say "the chart installs all three connected"

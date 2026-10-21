@@ -1,6 +1,8 @@
 # The chart in kind: every address is a Service name, which the test's client
 # resolves to a port-forward, so the tools reach each other and Keycloak at
 # the very addresses a browser does. Plain http, so no secure cookies.
+sampleData: { enabled: true, sources: [sparkplug] }
+
 keycloak:
   resources:
     requests: { cpu: 50m, memory: 512Mi }

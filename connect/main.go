@@ -1,6 +1,7 @@
 // Command dynamo-connect connects Stator, Armature and Exciter to each other
 // through their admin APIs, once all three answer, and exits. Running it again
-// changes only what differs.
+// changes only what differs. dynamo-connect sample-data instead fills them
+// with sample projects from GitHub or a built-in snapshot.
 package main
 
 import (
@@ -44,6 +45,10 @@ func main() {
 		os.Exit(2)
 	}
 	ctx := context.Background()
+	if len(os.Args) > 1 && os.Args[1] == "sample-data" {
+		sampleData(ctx, cfg)
+		return
+	}
 	changes, err := run(ctx, cfg)
 	for _, c := range changes {
 		slog.Info("changed", "what", c)
@@ -57,6 +62,34 @@ func main() {
 	}
 	if cfg.expectUnchanged && len(changes) > 0 {
 		slog.Error("a second run changed something, so the first did not leave the tools connected", "changes", len(changes))
+		os.Exit(3)
+	}
+}
+
+// sampleData is dynamo-connect sample-data: the sources DYNAMO_SAMPLE_SOURCES
+// names, imported into the three tools, after they are connected.
+func sampleData(ctx context.Context, cfg config) {
+	sc, err := loadSample(os.Getenv)
+	if err != nil {
+		slog.Error("the sample data is not set up", "error", err)
+		os.Exit(2)
+	}
+	changes, warnings, err := runSample(ctx, cfg, sc)
+	for _, c := range changes {
+		slog.Info("imported", "what", c)
+	}
+	for _, w := range warnings {
+		slog.Warn("left out", "what", w)
+	}
+	if err != nil {
+		slog.Error("the sample data could not be imported", "error", err)
+		os.Exit(1)
+	}
+	if len(changes) == 0 {
+		slog.Info("the sample data was imported already; nothing changed")
+	}
+	if cfg.expectUnchanged && len(changes) > 0 {
+		slog.Error("a second import changed something, so the first did not finish it", "changes", len(changes))
 		os.Exit(3)
 	}
 }
