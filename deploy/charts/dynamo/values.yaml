@@ -82,6 +82,15 @@ connect:
   # How long the Job waits for the three apis after the tools' own hooks.
   wait: 15m
 
+# helm test checks every webhook and one sign-in through the realm. The
+# sign-in uses the demo realm's alice; without the demo users, name an account
+# of the realm here and a Secret with its password under the key password, or
+# leave the email empty to check the webhooks only.
+check:
+  signIn:
+    email: ""
+    passwordSecret: ""
+
 stator:
   fullnameOverride: stator
   env: production
