@@ -68,7 +68,7 @@ object store and Mailpit:
 | `keycloak-server` | Keycloak with its own PostgreSQL. It imports `keycloak/realm.server.json` on its first start: the realm without demo users, each client's secret from `.env`, each tool's address as its only redirect. Its accounts survive restarts. |
 | `connect` | dynamo-connect, on every `docker compose up`: it changes only what differs, so it is safe to run again. |
 | `caddy` | HTTPS for the four addresses, with certificates from Let's Encrypt (`caddy/Caddyfile`). |
-| `sample-data` | Imports `DYNAMO_SAMPLE_SOURCES` after connect (the README's "Sample data"). It needs a dynamo-connect newer than 0.1.0. |
+| `sample-data` | Imports `DYNAMO_SAMPLE_SOURCES` after connect (the README's "Sample data"). |
 
 **A Keycloak of your own.** Leave out `keycloak-server`, set `OIDC_ISSUER` to
 your realm and the three clients' IDs and secrets, and leave `KEYCLOAK_URL`

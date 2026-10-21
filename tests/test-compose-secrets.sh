@@ -94,6 +94,9 @@ for t in stator armature exciter; do
   [[ "$(value "$(tr a-z A-Z <<< "$t")_VERSION" "$SRC/deploy/.env.example")" == "$v" ]] \
     || fail "deploy/.env.example names another ${t} than the pinned ${v}"
 done
-pass "the example pins the versions versions.yaml does"
+app=$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}/\1/p' "$SRC/deploy/charts/dynamo/Chart.yaml")
+[[ "$(value DYNAMO_CONNECT_IMAGE "$SRC/deploy/.env.example")" == "ghcr.io/praetorianer777/dynamo-connect:$app" ]] \
+  || fail "deploy/.env.example names another dynamo-connect than the chart's $app"
+pass "the example pins the versions versions.yaml does, and the chart's dynamo-connect"
 
 exit "$FAILED"

@@ -86,6 +86,6 @@ jobs:
             echo "helm test dynamo -n dynamo --logs"
             echo '```'
             echo
-            echo "docs/deploying.md says what values.yaml needs."
+            echo "docs/deploying.md says what values.yaml needs. On one machine without Kubernetes, docs/deploying-compose.md runs the same with Docker Compose."
           } > notes.md
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md "dist/dynamo-$VERSION.tgz"
