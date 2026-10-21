@@ -253,20 +253,50 @@ func (im *importer) armatureLabels(ctx context.Context) (map[string]bool, error)
 	return have, nil
 }
 
+// armatureLabel gives an issue its labels in Armature's form, making those
+// Armature lacks; a label it refuses all the same is left out with a warning.
 func (im *importer) armatureLabel(ctx context.Context, key string, names []string, have map[string]bool) error {
-	if len(names) == 0 {
+	var labels []string
+	for _, n := range labelNames(names) {
+		if !have[strings.ToLower(n)] {
+			err := im.armature.send(ctx, http.MethodPost, "/labels", map[string]string{"name": n, "color": "gray"}, nil)
+			switch {
+			case hasStatus(err, http.StatusBadRequest):
+				im.warn("%s is without the label %q: %v", key, n, err)
+				continue
+			case err != nil && !hasStatus(err, http.StatusConflict):
+				return err
+			}
+			have[strings.ToLower(n)] = true
+		}
+		labels = append(labels, n)
+	}
+	if len(labels) == 0 {
 		return nil
 	}
+	return im.armature.send(ctx, http.MethodPut, "/issues/"+key+"/labels", map[string][]string{"labels": labels}, nil)
+}
+
+// maxLabel is the longest label Armature takes, in characters.
+const maxLabel = 40
+
+// labelNames are GitHub labels as Armature takes them, one word of at most
+// maxLabel characters each, spaces as hyphens, once each.
+func labelNames(names []string) []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, n := range names {
-		if have[strings.ToLower(n)] {
+		n = strings.Join(strings.Fields(n), "-")
+		if r := []rune(n); len(r) > maxLabel {
+			n = string(r[:maxLabel])
+		}
+		if n == "" || seen[strings.ToLower(n)] {
 			continue
 		}
-		if err := im.armature.send(ctx, http.MethodPost, "/labels", map[string]string{"name": n, "color": "gray"}, nil); err != nil && !hasStatus(err, http.StatusConflict) {
-			return err
-		}
-		have[strings.ToLower(n)] = true
+		seen[strings.ToLower(n)] = true
+		out = append(out, n)
 	}
-	return im.armature.send(ctx, http.MethodPut, "/issues/"+key+"/labels", map[string][]string{"labels": names}, nil)
+	return out
 }
 
 var doneTransition = regexp.MustCompile(`(?i)\b(done|close|closed|resolve|resolved|complete|finish)\b`)

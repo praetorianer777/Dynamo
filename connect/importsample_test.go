@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -56,5 +57,13 @@ func TestTheSampleSettingsAreRead(t *testing.T) {
 		if _, err := loadSample(func(k string) string { return bad[k] }); err == nil {
 			t.Errorf("%v was taken", bad)
 		}
+	}
+}
+
+func TestAGitHubLabelBecomesOneWordForArmature(t *testing.T) {
+	got := labelNames([]string{"good first issue", " bug ", "Good  First\tIssue", "", strings.Repeat("x", 45), "needs: decision"})
+	want := []string{"good-first-issue", "bug", strings.Repeat("x", 40), "needs:-decision"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
