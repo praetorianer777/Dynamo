@@ -34,7 +34,7 @@ func TestTheBuiltInSnapshotDescribesAProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Key != "SPARK" || len(p.Issues) != 4 || len(p.Docs) != 6 || len(p.Sites) != 1 {
+	if p.Key != "SPARK" || len(p.Issues) != 4 || len(p.Docs) != 8 || len(p.Sites) != 1 {
 		t.Fatalf("read %s %s with %d issues and %d docs", p.Repo, p.Key, len(p.Issues), len(p.Docs))
 	}
 	var features []int

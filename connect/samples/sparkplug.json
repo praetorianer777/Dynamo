@@ -20,7 +20,8 @@
       "title": "The app shows the wrong state of charge after a reconnect",
       "body": "After the car reconnects, the app keeps the value from before until the next poll. Seen while testing the surplus charging of #1.",
       "labels": [
-        "bug"
+        "bug",
+        "good first issue"
       ],
       "closed": false
     },
@@ -59,6 +60,10 @@
       "markdown": "# MQTT topics\n\nEvery topic the charger publishes, with its unit, as asked in #4. Where each is set is in [the configuration](configuration.md#topics).\n"
     },
     {
+      "path": "docs/notes.md",
+      "markdown": "# Notes\n\nWhat the maintainers noted while building it.\n"
+    },
+    {
       "path": "CHANGELOG.md",
       "markdown": "# Changelog\n\n## 1.0\n\n- Charge from surplus solar power (#1)."
     },
@@ -73,6 +78,12 @@
       "markdown": "---\ntitle: Questions\n---\nSparkplug starts charging once the surplus has lasted a minute; see [installing](/en/docs/install/).\n",
       "repo": "dynamo-sample/sparkplug-docs",
       "file": "content/en/faq.md"
+    },
+    {
+      "path": "docs.sparkplug.example/notes.md",
+      "markdown": "---\ntitle: Notes\n---\nRelease notes of the site.\n",
+      "repo": "dynamo-sample/sparkplug-docs",
+      "file": "content/en/notes.md"
     }
   ],
   "sites": [

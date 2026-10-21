@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -56,5 +57,29 @@ func TestTheSampleSettingsAreRead(t *testing.T) {
 		if _, err := loadSample(func(k string) string { return bad[k] }); err == nil {
 			t.Errorf("%v was taken", bad)
 		}
+	}
+}
+
+func TestAGitHubLabelBecomesOneWordForArmature(t *testing.T) {
+	got := labelNames([]string{"good first issue", " bug ", "Good  First\tIssue", "", strings.Repeat("x", 45), "needs: decision"})
+	want := []string{"good-first-issue", "bug", strings.Repeat("x", 40), "needs:-decision"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAStatementLinksToItsPictures(t *testing.T) {
+	got := imagesAsLinks("See ![the chart](https://x/a.png \"t\") and ![](https://x/b.png).\n<img width=\"300\" src=\"https://x/c.png\" alt=\"c\">")
+	want := "See [the chart](https://x/a.png) and [image](https://x/b.png).\n[image](https://x/c.png)"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAStatementKeepsItsTextWithoutHTML(t *testing.T) {
+	in := "<!-- template -->\n<details><summary>Logs</summary>\nline one<br>line two\n</details>\nUse `List<T>` here.\n```html\n<div>kept</div>\n```"
+	want := "\nLogs\nline one  \nline two\n\nUse `List<T>` here.\n```html\n<div>kept</div>\n```"
+	if got := withoutHTML(in); got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
 	}
 }

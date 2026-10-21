@@ -253,20 +253,50 @@ func (im *importer) armatureLabels(ctx context.Context) (map[string]bool, error)
 	return have, nil
 }
 
+// armatureLabel gives an issue its labels in Armature's form, making those
+// Armature lacks; a label it refuses all the same is left out with a warning.
 func (im *importer) armatureLabel(ctx context.Context, key string, names []string, have map[string]bool) error {
-	if len(names) == 0 {
+	var labels []string
+	for _, n := range labelNames(names) {
+		if !have[strings.ToLower(n)] {
+			err := im.armature.send(ctx, http.MethodPost, "/labels", map[string]string{"name": n, "color": "gray"}, nil)
+			switch {
+			case hasStatus(err, http.StatusBadRequest):
+				im.warn("%s is without the label %q: %v", key, n, err)
+				continue
+			case err != nil && !hasStatus(err, http.StatusConflict):
+				return err
+			}
+			have[strings.ToLower(n)] = true
+		}
+		labels = append(labels, n)
+	}
+	if len(labels) == 0 {
 		return nil
 	}
+	return im.armature.send(ctx, http.MethodPut, "/issues/"+key+"/labels", map[string][]string{"labels": labels}, nil)
+}
+
+// maxLabel is the longest label Armature takes, in characters.
+const maxLabel = 40
+
+// labelNames are GitHub labels as Armature takes them, one word of at most
+// maxLabel characters each, spaces as hyphens, once each.
+func labelNames(names []string) []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, n := range names {
-		if have[strings.ToLower(n)] {
+		n = strings.Join(strings.Fields(n), "-")
+		if r := []rune(n); len(r) > maxLabel {
+			n = string(r[:maxLabel])
+		}
+		if n == "" || seen[strings.ToLower(n)] {
 			continue
 		}
-		if err := im.armature.send(ctx, http.MethodPost, "/labels", map[string]string{"name": n, "color": "gray"}, nil); err != nil && !hasStatus(err, http.StatusConflict) {
-			return err
-		}
-		have[strings.ToLower(n)] = true
+		seen[strings.ToLower(n)] = true
+		out = append(out, n)
 	}
-	return im.armature.send(ctx, http.MethodPut, "/issues/"+key+"/labels", map[string][]string{"labels": names}, nil)
+	return out
 }
 
 var doneTransition = regexp.MustCompile(`(?i)\b(done|close|closed|resolve|resolved|complete|finish)\b`)
@@ -354,6 +384,15 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 	for _, n := range nodes {
 		if id, ok := have[n.source]; ok {
 			ids[n.key] = id
+			// A run stopped between making a page and writing it left it at
+			// its first version; this one writes it.
+			written, err := im.statorWritten(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if !written {
+				write = append(write, n)
+			}
 			continue
 		}
 		var id string
@@ -409,7 +448,15 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 		if n.key == "" {
 			name = "index"
 		}
-		if err := im.statorMarkdown(ctx, ids[n.key], name+".md", md); err != nil {
+		err := im.statorMarkdown(ctx, ids[n.key], name+".md", md)
+		if hasStatus(err, http.StatusUnprocessableEntity) {
+			// Stator refuses some Markdown that GitHub shows; the page then
+			// says where to read it rather than stopping the whole import.
+			im.warn("the Stator page %q holds only a link to its source, since Stator refused its Markdown: %v", n.title, err)
+			md = fmt.Sprintf("# %s\n\nStator could not take this page's Markdown; read it [on GitHub](%s).\n", n.title, n.source)
+			err = im.statorMarkdown(ctx, ids[n.key], name+".md", md)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -421,6 +468,19 @@ func (im *importer) statorPages(ctx context.Context, p sampleProject, issues map
 		}
 	}
 	return out, nil
+}
+
+// statorWritten says whether a page has a version beyond the empty one it was made with.
+func (im *importer) statorWritten(ctx context.Context, id string) (bool, error) {
+	var current struct {
+		Page struct {
+			Version int `json:"version"`
+		} `json:"page"`
+	}
+	if err := im.stator.send(ctx, http.MethodGet, "/pages/"+id, nil, &current); err != nil {
+		return false, err
+	}
+	return current.Page.Version > 1, nil
 }
 
 // folderMarkdown is the page of a folder without a doc of its own: a list of the pages under it.
@@ -438,12 +498,19 @@ func folderMarkdown(folder pageNode, nodes []pageNode, pageURL func(string) (str
 // statorSources are the space's pages by the GitHub address of what each was
 // imported from, which every imported page links to.
 func (im *importer) statorSources(ctx context.Context, space string) (map[string]string, error) {
-	pages, err := im.statorTitles(ctx, space)
-	if err != nil {
+	// Every page of the outline, since pages of one title, as two folders'
+	// "Configuration", are pages of their own.
+	var outline struct {
+		Pages []struct {
+			ID string `json:"id"`
+		} `json:"pages"`
+	}
+	if err := im.stator.send(ctx, http.MethodGet, "/spaces/"+space+"/outline", nil, &outline); err != nil {
 		return nil, err
 	}
 	out := map[string]string{}
-	for _, id := range pages {
+	for _, pg := range outline.Pages {
+		id := pg.ID
 		var list struct {
 			RemoteLinks []struct {
 				URL    string `json:"url"`
@@ -458,24 +525,6 @@ func (im *importer) statorSources(ctx context.Context, space string) (map[string
 				out[l.URL] = id
 			}
 		}
-	}
-	return out, nil
-}
-
-// statorTitles are the space's pages by title, from its outline.
-func (im *importer) statorTitles(ctx context.Context, space string) (map[string]string, error) {
-	var outline struct {
-		Pages []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"pages"`
-	}
-	if err := im.stator.send(ctx, http.MethodGet, "/spaces/"+space+"/outline", nil, &outline); err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	for _, pg := range outline.Pages {
-		out[pg.Title] = pg.ID
 	}
 	return out, nil
 }
@@ -579,8 +628,13 @@ func (im *importer) exciterRequirements(ctx context.Context, p sampleProject, is
 					Key string `json:"key"`
 				} `json:"requirement"`
 			}
-			body := map[string]string{"title": markedTitle(i.Title, i.Number), "statementMarkdown": truncate(statement, maxText)}
-			if err := im.exciter.send(ctx, http.MethodPost, "/projects/"+p.Key+"/requirements", body, &made); err != nil {
+			body := map[string]string{"title": markedTitle(i.Title, i.Number), "statementMarkdown": truncate(withoutHTML(imagesAsLinks(statement)), maxText)}
+			err := im.exciter.send(ctx, http.MethodPost, "/projects/"+p.Key+"/requirements", body, &made)
+			if hasStatus(err, http.StatusUnprocessableEntity) {
+				im.warn("%s has no requirement in Exciter, which refused it: %v", p.sourceKey(i), err)
+				continue
+			}
+			if err != nil {
 				return err
 			}
 			key = made.Requirement.Key
@@ -677,6 +731,54 @@ func mentions(d sampleDoc, number int) bool {
 
 // maxText bounds one issue's text: some projects' issues carry whole logs.
 const maxText = 20000
+
+var (
+	markdownImage = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)[^)]*\)`)
+	htmlImage     = regexp.MustCompile(`<img\b[^>]*\bsrc="([^"]+)"[^>]*>`)
+)
+
+// imagesAsLinks turns a statement's pictures into links to them, since Exciter
+// shows only pictures attached to the requirement itself.
+func imagesAsLinks(md string) string {
+	md = markdownImage.ReplaceAllStringFunc(md, func(m string) string {
+		sub := markdownImage.FindStringSubmatch(m)
+		alt := sub[1]
+		if alt == "" {
+			alt = "image"
+		}
+		return "[" + alt + "](" + sub[2] + ")"
+	})
+	return htmlImage.ReplaceAllString(md, "[image]($1)")
+}
+
+var (
+	htmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	htmlBreak   = regexp.MustCompile(`(?i)<br\s*/?>`)
+	htmlTag     = regexp.MustCompile(`</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>`)
+)
+
+// withoutHTML keeps a statement's text and drops its HTML, which Exciter
+// refuses in a requirement; code, fenced or inline, stays as it is.
+func withoutHTML(md string) string {
+	md = htmlComment.ReplaceAllString(md, "")
+	lines := strings.Split(md, "\n")
+	fenced := false
+	for i, line := range lines {
+		if fenceLine.MatchString(line) {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
+		parts := strings.Split(line, "`")
+		for j := 0; j < len(parts); j += 2 {
+			parts[j] = htmlTag.ReplaceAllString(htmlBreak.ReplaceAllString(parts[j], "  \n"), "")
+		}
+		lines[i] = strings.Join(parts, "`")
+	}
+	return strings.Join(lines, "\n")
+}
 
 func truncate(s string, max int) string {
 	if r := []rune(s); len(r) > max {

@@ -252,6 +252,9 @@ func TestStackTheSampleIsInAllThree(t *testing.T) {
 	if got := links(im.armature, "/issues/"+keys[1]+"/remote-links"); !strings.Contains(got, "github.com/dynamo-sample/sparkplug/issues/1") || !strings.Contains(got, im.statorURL+"/p/") {
 		t.Errorf("%s links to %s, want its GitHub issue and the Stator pages that mention it", keys[1], got)
 	}
+	if got := links(im.armature, "/issues/"+keys[2]); !strings.Contains(got, "good-first-issue") {
+		t.Errorf("%s lacks the label good first issue in Armature's form: %s", keys[2], got)
+	}
 	for _, n := range []int{2, 3} {
 		if got := links(im.armature, "/issues/"+keys[n]+"/links"); !strings.Contains(got, `"key":"`+keys[1]+`"`) {
 			t.Errorf("%s relates to %s, want %s, which it mentions", keys[n], got, keys[1])
@@ -276,6 +279,15 @@ func TestStackTheSampleIsInAllThree(t *testing.T) {
 		if pages[title] == "" {
 			t.Errorf("Stator's SPARK has no page %q among %v", title, pages)
 		}
+	}
+	notes := 0
+	for _, pg := range outline.Pages {
+		if pg.Title == "Notes" {
+			notes++
+		}
+	}
+	if notes != 2 {
+		t.Errorf("Stator's SPARK has %d pages called Notes, want the two of the repository and the site, once each", notes)
 	}
 	for page, folder := range map[string]string{"Configuration": "Docs", "Installing Sparkplug": "docs.sparkplug.example", "Docs": "Sparkplug"} {
 		if parents[pages[page]] != pages[folder] {
