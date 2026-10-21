@@ -5,7 +5,10 @@
 # carry the audiences of the partners it exchanges them at, and every issuer
 # the stack names is that realm.
 #
-# Needs bash, grep and awk only; no stack and no network.
+# And deploy/keycloak/realm.server.json, which a server's Keycloak imports, is
+# the canonical realm as make realm-server makes it.
+#
+# Needs bash, grep, awk and docker; no stack.
 set -u
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,5 +39,11 @@ stale=$(cd "$SRC" && grep -rnE '/realms/[A-Za-z0-9_-]+' deploy mk Makefile READM
   | grep -vE "/realms/(${REALM}|master)\b")
 [[ -z "$stale" ]] && pass "every issuer of the stack names /realms/${REALM}" \
   || fail "these name another realm than ${REALM}: $(paste -sd' ' <<< "$stale")"
+
+if diff -q <(make -s -C "$SRC" realm-server-print) "$SRC/deploy/keycloak/realm.server.json" >/dev/null; then
+  pass "the server's realm is the canonical one, made for a server"
+else
+  fail "deploy/keycloak/realm.server.json differs from what the canonical realm makes; run make realm-server."
+fi
 
 exit "$FAILED"

@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LAYERS=(shell check-format check-go test-stack test-chart)
+LAYERS=(shell check-format check-go test-stack test-server test-chart)
 
 if [[ "${1:-}" == --list ]]; then
   printf '%s\n' "${LAYERS[@]}"
@@ -25,6 +25,7 @@ wanted() { [[ " ${selected[*]} " == *" $1 "* ]]; }
 
 shell_tests() {
   ./tests/test-versions.sh && ./tests/test-realm.sh && ./tests/test-chart.sh && ./tests/test-compose.sh \
+    && ./tests/test-compose-secrets.sh \
     && ./.claude/hooks/tests/branch-guard-test.sh
 }
 
@@ -58,5 +59,7 @@ if wanted test-stack; then
   make stack-down >/dev/null 2>&1 || true
   stack_started=""
 fi
+# Its script takes its own stack down, also when it is stopped.
+wanted test-server && run_layer test-server make --no-print-directory test-server
 wanted test-chart && run_layer test-chart make --no-print-directory test-chart
 exit 0

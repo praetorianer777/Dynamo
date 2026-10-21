@@ -6,6 +6,9 @@ After every install and upgrade, the connect Job wires the three to each
 other. `helm test` then checks from inside the cluster that they are
 connected.
 
+On one machine without Kubernetes, `docs/deploying-compose.md` does the same
+with Docker Compose.
+
 ## What the cluster needs
 
 - An ingress controller, and DNS names for Keycloak and the three tools.
