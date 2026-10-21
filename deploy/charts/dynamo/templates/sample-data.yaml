@@ -1,0 +1,55 @@
+{{- with .Values.sampleData }}
+{{- if .enabled }}
+{{- if not .sources }}
+{{- fail "sampleData.sources names no source; give one or more of sparkplug, evcc, armature, stator, exciter, dynamo or owner/repo, or set sampleData.enabled to false." }}
+{{- end }}
+# Fills the tools with sample projects after dynamo-connect (weight 20) has
+# connected them, so the links between them resolve. Each run finds what an
+# earlier one made, so it is safe on every upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $.Release.Name }}-sample-data
+  labels:
+    {{- include "dynamo.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: dynamo-sample-data
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "30"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dynamo-sample-data
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: sample-data
+          image: "{{ $.Values.connect.image.repository }}:{{ $.Values.connect.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $.Values.connect.image.pullPolicy }}
+          args: [sample-data]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            {{- include "dynamo.connectEnv" $ | nindent 12 }}
+            {{- include "dynamo.proxyEnv" $ | nindent 12 }}
+            - { name: DYNAMO_SAMPLE_SOURCES, value: {{ toJson .sources | quote }} }
+            - { name: DYNAMO_SAMPLE_MAX_ISSUES, value: {{ .maxIssuesPerSource | quote }} }
+            {{- if .github.tokenSecret }}
+            - name: GITHUB_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ .github.tokenSecret }}, key: token } }
+            {{- end }}
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { memory: 512Mi }
+{{- end }}
+{{- end }}

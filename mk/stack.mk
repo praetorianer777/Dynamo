@@ -145,6 +145,12 @@ up: stack-env ## Start all three at the pinned versions, connected to each other
 connect: ## Connect the running tools to each other again
 	docker compose run --rm --build connect
 
+# GITHUB_TOKEN, when set, raises GitHub's rate limit from 60 requests an hour to 5000.
+SOURCES ?= sparkplug
+.PHONY: sample-data
+sample-data: ## Import sample data into the running tools: make sample-data SOURCES=evcc,owner/repo
+	docker compose run --rm --build -e DYNAMO_SAMPLE_SOURCES='$(SOURCES)' -e DYNAMO_SAMPLE_MAX_ISSUES -e GITHUB_TOKEN connect sample-data
+
 .PHONY: down
 down: ## Stop the stack, keeping its data
 	docker compose down
@@ -174,16 +180,21 @@ stack-down:
 	@rm -f $(STACK_ENV_FILE)
 
 # Two runs of the connect job: the first wires the stack, the second must find
-# nothing left to change.
+# nothing left to change. The sample data likewise, before the checks look at it.
 .PHONY: test-stack
-test-stack: stack-up test-signin
+test-stack: stack-up
+	docker compose run --rm connect sample-data
+	docker compose run --rm -e DYNAMO_EXPECT_UNCHANGED=1 connect sample-data
+	$(MAKE) test-signin CHECK_SAMPLE=sparkplug
 	docker compose run --rm -e DYNAMO_EXPECT_UNCHANGED=1 connect
 
 # Signs in through the realm as a browser would and tests every webhook, from
-# the host's network, since the issuer is the address browsers use.
+# the host's network, since the issuer is the address browsers use. With
+# CHECK_SAMPLE=sparkplug it also checks the imported sample.
+CHECK_SAMPLE ?=
 .PHONY: test-signin
 test-signin: | $(GO_CACHE) ## Sign in to all three through Keycloak and test every webhook on the running stack
-	$(call go_run,--network host -e DYNAMO_STACK_ENV=/work/.cache/stack.env) go test -count=1 -tags stack -run Stack -v ./...
+	$(call go_run,--network host -e DYNAMO_STACK_ENV=/work/.cache/stack.env -e DYNAMO_SAMPLE_SOURCES=$(CHECK_SAMPLE)) go test -count=1 -tags stack -run Stack -v ./...
 
 # The stack as compose reads it with the variables above, for tests/test-compose.sh.
 .PHONY: compose-config

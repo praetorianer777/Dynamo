@@ -9,6 +9,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"html"
 	"io"
 	"net"
@@ -197,4 +198,156 @@ func awaitDelivery(ctx context.Context, s *session, id string) int {
 		time.Sleep(time.Second)
 	}
 	return 0
+}
+
+// TestStackTheSampleIsInAllThree checks what the sample-data mode made of the
+// built-in sparkplug, when DYNAMO_SAMPLE_SOURCES names it: its issues in
+// Armature, its docs in Stator, its features in Exciter, and the links between them.
+func TestStackTheSampleIsInAllThree(t *testing.T) {
+	env := stackEnv(t)
+	if !strings.Contains(env["DYNAMO_SAMPLE_SOURCES"]+os.Getenv("DYNAMO_SAMPLE_SOURCES"), "sparkplug") {
+		t.Skip("DYNAMO_SAMPLE_SOURCES does not name sparkplug")
+	}
+	ctx := context.Background()
+	im := &importer{armatureURL: strings.TrimRight(env["ARMATURE_URL"], "/"), statorURL: strings.TrimRight(env["STATOR_URL"], "/"),
+		exciterURL: strings.TrimRight(env["EXCITER_URL"], "/")}
+	for _, s := range []struct {
+		s       **session
+		product string
+	}{{&im.armature, "armature"}, {&im.stator, "stator"}, {&im.exciter, "exciter"}} {
+		P := strings.ToUpper(s.product)
+		*s.s = newSession(s.product, env[P+"_URL"])
+		(*s.s).client = browser()
+		if err := (*s.s).signIn(ctx, env[P+"_ADMIN_EMAIL"], env[P+"_ADMIN_PASSWORD"]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var issues struct {
+		Issues []struct {
+			Key     string `json:"key"`
+			Summary string `json:"summary"`
+		} `json:"issues"`
+	}
+	if err := im.armature.send(ctx, http.MethodGet, "/projects/SPARK/issues?limit=100", nil, &issues); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[int]string{}
+	for _, i := range issues.Issues {
+		if n, ok := numberOf(i.Summary); ok {
+			keys[n] = i.Key
+		}
+	}
+	if len(keys) != 4 {
+		t.Fatalf("Armature's SPARK has the sample issues %v, want #1 to #4", keys)
+	}
+	links := func(s *session, path string) string {
+		t.Helper()
+		var raw json.RawMessage
+		if err := s.send(ctx, http.MethodGet, path, nil, &raw); err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	if got := links(im.armature, "/issues/"+keys[1]+"/remote-links"); !strings.Contains(got, "github.com/dynamo-sample/sparkplug/issues/1") || !strings.Contains(got, im.statorURL+"/p/") {
+		t.Errorf("%s links to %s, want its GitHub issue and the Stator pages that mention it", keys[1], got)
+	}
+	for _, n := range []int{2, 3} {
+		if got := links(im.armature, "/issues/"+keys[n]+"/links"); !strings.Contains(got, `"key":"`+keys[1]+`"`) {
+			t.Errorf("%s relates to %s, want %s, which it mentions", keys[n], got, keys[1])
+		}
+	}
+
+	var outline struct {
+		Pages []struct {
+			ID       string `json:"id"`
+			ParentID string `json:"parentId"`
+			Title    string `json:"title"`
+		} `json:"pages"`
+	}
+	if err := im.stator.send(ctx, http.MethodGet, "/spaces/SPARK/outline", nil, &outline); err != nil {
+		t.Fatal(err)
+	}
+	pages, parents := map[string]string{}, map[string]string{}
+	for _, pg := range outline.Pages {
+		pages[pg.Title], parents[pg.ID] = pg.ID, pg.ParentID
+	}
+	for _, title := range []string{"Sparkplug", "Docs", "Configuration", "MQTT topics", "docs.sparkplug.example", "Installing Sparkplug", "Questions", "Changelog", "About this sample"} {
+		if pages[title] == "" {
+			t.Errorf("Stator's SPARK has no page %q among %v", title, pages)
+		}
+	}
+	for page, folder := range map[string]string{"Configuration": "Docs", "Installing Sparkplug": "docs.sparkplug.example", "Docs": "Sparkplug"} {
+		if parents[pages[page]] != pages[folder] {
+			t.Errorf("the page %s is not under %s", page, folder)
+		}
+	}
+	text := func(title string) string {
+		t.Helper()
+		var md []byte
+		if err := im.stator.send(ctx, http.MethodGet, "/pages/"+pages[title]+"/markdown", nil, &md); err != nil {
+			t.Fatal(err)
+		}
+		return string(md)
+	}
+	page := func(title string) string { return im.statorURL + "/p/" + pages[title] }
+	readme := text("Sparkplug")
+	for _, want := range []string{page("Configuration"), page("Installing Sparkplug"), im.armatureURL + "/issues/" + keys[2], "https://docs.sparkplug.example/en/docs/devices/chargers"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("the README does not link to %s:\n%s", want, readme)
+		}
+	}
+	if install := text("Installing Sparkplug"); !strings.Contains(install, page("Configuration")) {
+		t.Errorf("the site's page does not link to the configuration's page:\n%s", install)
+	}
+	if faq := text("Questions"); !strings.Contains(faq, page("Installing Sparkplug")) {
+		t.Errorf("the site's page does not link to the site's other page by its path:\n%s", faq)
+	}
+	if topics := text("MQTT topics"); !strings.Contains(topics, page("Configuration")+"#topics") {
+		t.Errorf("the topics do not link to the configuration's page, relative as they are:\n%s", topics)
+	}
+	if folder := text("Docs"); !strings.Contains(folder, page("Configuration")) {
+		t.Errorf("the folder's page does not list the pages under it:\n%s", folder)
+	}
+	if id := pages["Configuration"]; id != "" {
+		if got := links(im.stator, "/pages/"+id+"/remote-links"); !strings.Contains(got, im.armatureURL+"/issues/"+keys[4]) || !strings.Contains(got, "https://github.com/dynamo-sample/sparkplug/blob/HEAD/docs/configuration.md") {
+			t.Errorf("the page Configuration links to %s, want %s, which it mentions, and its source", got, keys[4])
+		}
+	}
+	if id := pages["About this sample"]; id != "" {
+		got := links(im.stator, "/pages/"+id+"/remote-links")
+		for _, want := range []string{im.armatureURL + "/projects/SPARK", im.exciterURL + "/p/SPARK"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("the page About this sample links to %s, want %s", got, want)
+			}
+		}
+	}
+
+	var reqs struct {
+		Rows []struct {
+			Key   string `json:"key"`
+			Title string `json:"title"`
+		} `json:"rows"`
+	}
+	if err := im.exciter.send(ctx, http.MethodGet, "/projects/SPARK/requirements?limit=100", nil, &reqs); err != nil {
+		t.Fatal(err)
+	}
+	features := map[int]string{}
+	for _, r := range reqs.Rows {
+		if n, ok := numberOf(r.Title); ok {
+			features[n] = r.Key
+		}
+	}
+	if len(features) != 2 || features[1] == "" || features[3] == "" {
+		t.Fatalf("Exciter's SPARK has the requirements %v, want one each for the features #1 and #3", features)
+	}
+	if got := links(im.exciter, "/requirements/"+features[1]+"/armature-links"); !strings.Contains(got, `"issueKey":"`+keys[1]+`"`) {
+		t.Errorf("%s is traced to %s, want %s", features[1], got, keys[1])
+	}
+	if got := links(im.exciter, "/requirements/"+features[1]+"/stator-links"); !strings.Contains(got, pages["Changelog"]) {
+		t.Errorf("%s is traced to %s, want the page Changelog, which mentions #1", features[1], got)
+	}
+	if got := links(im.exciter, "/requirements/"+features[3]+"/links"); !strings.Contains(got, `"key":"`+features[1]+`"`) {
+		t.Errorf("%s relates to %s, want %s, whose issue it mentions", features[3], got, features[1])
+	}
 }

@@ -64,6 +64,30 @@ With the bundled store, each tool names the store's Secret, since the store
 has one key pair; the chart refuses anything else. With an S3 of your own
 (`objectStore.enabled: false`), each tool names its own.
 
+## Sample data
+
+With `sampleData.enabled`, a Job after the connect Job imports the projects
+`sampleData.sources` names into all three, linked to each other; the
+README's "Sample data" says what each source becomes. Sources other than
+the built-in `sparkplug` are read from GitHub, which the Job must reach;
+without a token GitHub allows 60 requests an hour, so for several or large
+sources make a Secret with a token and name it in
+`sampleData.github.tokenSecret`:
+
+```sh
+kubectl -n dynamo create secret generic github-token --from-literal=token=<token>
+```
+
+Where the cluster reaches the internet only through a proxy, name it:
+
+```yaml
+proxy:
+  https: http://proxy.example.com:3128
+  noProxy: .example.com     # more to reach directly; the suite's own names always are
+```
+
+The Job runs again on every upgrade and changes only what is missing.
+
 ## Upgrade
 
 `helm upgrade` with a newer chart version runs the tools' migrations and then

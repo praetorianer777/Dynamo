@@ -80,3 +80,44 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/* What dynamo-connect reads, for the connect and the sample-data Jobs. */}}
+{{- define "dynamo.connectEnv" -}}
+{{- $secret := include "dynamo.oidcSecret" . }}
+- { name: DYNAMO_WAIT, value: {{ .Values.connect.wait | quote }} }
+- { name: DYNAMO_OIDC_ISSUER, value: {{ include "dynamo.issuer" . | quote }} }
+- { name: DYNAMO_OIDC_GROUPS_CLAIM, value: {{ .Values.oidc.groupsClaim | quote }} }
+- name: DYNAMO_MEMBERS
+  value: {{ $m := list }}{{ range .Values.members }}{{ $m = append $m (printf "%s=%s" .email .role) }}{{ end }}{{ join "," $m | quote }}
+{{- range $d := .Chart.Dependencies }}
+{{- $t := $d.Name }}
+{{- $T := upper $t }}
+- { name: DYNAMO_{{ $T }}_API, value: "http://{{ $t }}-api:8080" }
+- { name: DYNAMO_{{ $T }}_URL, value: {{ include "dynamo.toolURL" (dict "root" $ "tool" $t) | quote }} }
+- { name: DYNAMO_{{ $T }}_VERSION, value: {{ $d.Version | quote }} }
+- { name: DYNAMO_{{ $T }}_OIDC_CLIENT_ID, value: {{ (index $.Values.oidc.clients $t).id | quote }} }
+- name: DYNAMO_{{ $T }}_OIDC_CLIENT_SECRET
+  valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $t }}-client-secret } }
+{{- $admin := include "dynamo.adminSecret" (dict "root" $ "tool" $t) }}
+- name: DYNAMO_{{ $T }}_ADMIN_EMAIL
+  valueFrom: { secretKeyRef: { name: {{ $admin }}, key: username } }
+- name: DYNAMO_{{ $T }}_ADMIN_PASSWORD
+  valueFrom: { secretKeyRef: { name: {{ $admin }}, key: password } }
+{{- end }}
+{{- end }}
+
+{{/* HTTP_PROXY and its kin when proxy names one, with the suite's own names direct. */}}
+{{- define "dynamo.proxyEnv" -}}
+{{- with .Values.proxy }}
+{{- if or .http .https }}
+{{- $direct := list "localhost" "127.0.0.1" "keycloak" ".svc" ".cluster.local" }}
+{{- range $t := list "stator" "armature" "exciter" }}
+{{- $direct = append (append $direct (printf "%s-api" $t)) (printf "%s-web" $t) }}
+{{- end }}
+{{- with .noProxy }}{{ $direct = append $direct . }}{{ end }}
+- { name: HTTP_PROXY, value: {{ .http | default .https | quote }} }
+- { name: HTTPS_PROXY, value: {{ .https | default .http | quote }} }
+- { name: NO_PROXY, value: {{ join "," $direct | quote }} }
+{{- end }}
+{{- end }}
+{{- end }}

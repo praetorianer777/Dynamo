@@ -4,6 +4,7 @@ FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
+COPY samples ./samples
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dynamo-connect .
 # The stack checks, which the chart's helm test runs against the installed suite.
 RUN CGO_ENABLED=0 go test -c -tags stack -trimpath -ldflags="-s -w" -o /dynamo-check .
