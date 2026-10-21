@@ -1,5 +1,6 @@
-{{- $secret := printf "%s-connect" .Release.Name }}
-{{- $armatureAdmin := printf "%s-armature-admin" .Release.Name }}
+{{- $secret := include "dynamo.oidcSecret" . }}
+{{- $armatureAdmin := include "dynamo.armatureAdminSecret" . }}
+{{- if not .Values.armatureAdmin.existingSecret }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -11,6 +12,8 @@ stringData:
   username: {{ .Values.armatureAdmin.email | quote }}
   password: {{ include "dynamo.password" (dict "root" . "secret" $armatureAdmin "key" "password" "value" .Values.armatureAdmin.password) | quote }}
 ---
+{{- end }}
+{{- if not .Values.oidc.existingSecret }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -22,6 +25,7 @@ stringData:
   armature-client-secret: {{ .Values.oidc.clients.armature.secret | quote }}
   exciter-client-secret: {{ .Values.oidc.clients.exciter.secret | quote }}
 ---
+{{- end }}
 # Connects the three once all of them answer: after their own migrate and
 # bootstrap hooks (weight 10), on every install and upgrade.
 apiVersion: batch/v1
@@ -71,7 +75,7 @@ spec:
             - { name: DYNAMO_{{ $T }}_OIDC_CLIENT_ID, value: {{ (index $.Values.oidc.clients $t).id | quote }} }
             - name: DYNAMO_{{ $T }}_OIDC_CLIENT_SECRET
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $t }}-client-secret } }
-            {{- $admin := ternary $armatureAdmin (printf "%s-bootstrap-admin" $t) (eq $t "armature") }}
+            {{- $admin := include "dynamo.adminSecret" (dict "root" $ "tool" $t) }}
             - name: DYNAMO_{{ $T }}_ADMIN_EMAIL
               valueFrom: { secretKeyRef: { name: {{ $admin }}, key: username } }
             - name: DYNAMO_{{ $T }}_ADMIN_PASSWORD

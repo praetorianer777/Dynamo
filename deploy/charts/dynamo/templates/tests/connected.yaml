@@ -1,4 +1,3 @@
-{{- $armatureAdmin := printf "%s-armature-admin" .Release.Name }}
 {{- $demo := and .Values.keycloak.enabled .Values.keycloak.demoUsers }}
 {{- $signIn := .Values.check.signIn }}
 # helm test: every webhook dynamo-connect made delivers, and one sign-in
@@ -34,7 +33,7 @@ spec:
         {{- $t := $d.Name }}
         {{- $T := upper $t }}
         - { name: {{ $T }}_URL, value: {{ include "dynamo.toolURL" (dict "root" $ "tool" $t) | quote }} }
-        {{- $admin := ternary $armatureAdmin (printf "%s-bootstrap-admin" $t) (eq $t "armature") }}
+        {{- $admin := include "dynamo.adminSecret" (dict "root" $ "tool" $t) }}
         - name: {{ $T }}_ADMIN_EMAIL
           valueFrom: { secretKeyRef: { name: {{ $admin }}, key: username } }
         - name: {{ $T }}_ADMIN_PASSWORD

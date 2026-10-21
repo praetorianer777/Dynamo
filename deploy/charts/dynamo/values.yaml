@@ -30,6 +30,9 @@ keycloak:
     username: admin
     # Empty: a random password, kept in the Secret <release>-keycloak-admin.
     password: ""
+    # A basic-auth Secret made beforehand (keys username and password), which
+    # then holds both instead of the two values above.
+    existingSecret: ""
   # Shipped with the canonical realm's demo users (alice, bob, carol, dave).
   # Turn it off to import the realm without them.
   demoUsers: true
@@ -48,6 +51,10 @@ oidc:
     stator: { id: stator, secret: stator-dev-secret }
     armature: { id: armature, secret: armature-dev-secret }
     exciter: { id: exciter, secret: exciter-dev-secret }
+  # A Secret made beforehand with the keys stator-client-secret,
+  # armature-client-secret and exciter-client-secret, which then hold the
+  # clients' secrets instead of the values above; the ids stay above.
+  existingSecret: ""
 
 # Who of the realm is let into all three before their first sign-in. Keep
 # stator.bootstrap.members and exciter.bootstrap.members the same; the chart
@@ -62,6 +69,9 @@ members:
 armatureAdmin:
   email: admin@armature.dynamo
   password: ""
+  # A basic-auth Secret made beforehand (keys username and password), which
+  # then holds the email and password instead.
+  existingSecret: ""
 
 # One S3 store for all three, the Service s3 on port 8333. Each tool keeps its
 # own bucket and is given these keys in its own values below; the chart
@@ -71,6 +81,11 @@ objectStore:
   image: chrislusf/seaweedfs:4.46
   accessKey: dynamo
   secretKey: dynamo-dev-secret
+  # A Secret made beforehand with the keys s3-access-key and s3-secret-key,
+  # which then holds the store's keys instead of the two values above. Each
+  # tool reads the same Secret: set its secrets.create to false and its
+  # secrets.existingSecret to this name, as the chart checks.
+  existingSecret: ""
   storage: 10Gi
 
 connect:

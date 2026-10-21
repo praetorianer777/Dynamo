@@ -10,7 +10,9 @@
 # other is pulled from its registry. With DYNAMO_CHARTS_FROM_SOURCE=1 the
 # tools' charts are packaged from their main branches instead of pulled.
 # With DYNAMO_FROM_RELEASE=1 it installs as an operator does: the published
-# chart at this checkout's version, and every image from its registry.
+# chart at this checkout's version, and every image from its registry. With
+# DYNAMO_EXISTING_SECRETS=1 every secret comes from a Secret made before the
+# install, and none may show in what the release rendered.
 set -euo pipefail
 
 CLUSTER="${DYNAMO_CLUSTER:-dynamo-chart}"
@@ -86,11 +88,28 @@ done
 
 say "install"
 kubectl create namespace "$NS" >/dev/null
+VALUES=(-f /work/scripts/chart-test-values.yaml)
+if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
+  gen() { head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+  made=()
+  mk() { # name key=value...
+    local name=$1; shift
+    local args=() kv
+    for kv in "$@"; do args+=(--from-literal="$kv"); made+=("${kv#*=}"); done
+    kubectl -n "$NS" create secret generic "$name" "${args[@]}" >/dev/null
+  }
+  mk test-oidc-clients "stator-client-secret=$(gen)" "armature-client-secret=$(gen)" "exciter-client-secret=$(gen)"
+  mk test-keycloak-admin username=admin "password=$(gen)"
+  mk test-armature-owner username=owner@armature.dynamo "password=$(gen)"
+  mk test-s3 s3-access-key=dynamo "s3-secret-key=$(gen)"
+  VALUES+=(-f /work/scripts/chart-test-existing-secrets.yaml)
+  echo "   made every secret beforehand"
+fi
 # No --wait: the tools' post-install hooks must run before their pods can be
 # ready, and the connect Job is the last of them, so a finished install is a
 # connected suite.
 start=$SECONDS
-helm install "$RELEASE" "$WORK/chart" -n "$NS" -f /work/scripts/chart-test-values.yaml --timeout 30m
+helm install "$RELEASE" "$WORK/chart" -n "$NS" "${VALUES[@]}" --timeout 30m
 echo "   installed and connected in $((SECONDS - start))s"
 kubectl -n "$NS" logs "job/$RELEASE-connect" | sed 's/^/   /'
 for t in stator armature exciter; do
@@ -101,8 +120,21 @@ done
 say "helm test"
 helm test "$RELEASE" -n "$NS" --logs --timeout 10m | sed 's/^/   /'
 
+if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
+  say "no secret in the release"
+  rendered=$(helm get manifest "$RELEASE" -n "$NS"; helm get hooks "$RELEASE" -n "$NS"; helm get values "$RELEASE" -n "$NS" -a)
+  for v in "${made[@]}"; do
+    [[ ${#v} -lt 16 ]] && continue
+    if grep -qF "$v" <<< "$rendered"; then
+      echo "   a secret made beforehand shows in what the release rendered, so the chart copied it out of its Secret"
+      exit 1
+    fi
+  done
+  echo "   none of the secrets made beforehand shows in the release"
+fi
+
 say "upgrade"
-helm upgrade "$RELEASE" "$WORK/chart" -n "$NS" -f /work/scripts/chart-test-values.yaml --timeout 20m >/dev/null
+helm upgrade "$RELEASE" "$WORK/chart" -n "$NS" "${VALUES[@]}" --timeout 20m >/dev/null
 log=$(kubectl -n "$NS" logs "job/$RELEASE-connect")
 if grep -q "nothing changed" <<< "$log"; then
   echo "   the connect Job ran again and found the tools connected"
