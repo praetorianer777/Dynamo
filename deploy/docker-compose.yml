@@ -579,7 +579,7 @@ services:
   # Connects the three through their admin APIs once all of them answer, and
   # exits; running it again changes only what differs.
   connect:
-    image: ${CONNECT_IMAGE}
+    image: ${DYNAMO_CONNECT_IMAGE}
     build:
       context: ../connect
     # make up runs it after everything else is healthy; on a server the
@@ -622,7 +622,7 @@ services:
   # The sample projects of DYNAMO_SAMPLE_SOURCES, after connect (README,
   # "Sample data"); make sample-data runs connect sample-data instead.
   sample-data:
-    image: ${CONNECT_IMAGE}
+    image: ${DYNAMO_CONNECT_IMAGE}
     profiles: [sample-data]
     command: [sample-data]
     depends_on:

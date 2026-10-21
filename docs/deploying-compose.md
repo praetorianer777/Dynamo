@@ -84,7 +84,7 @@ HTTPS.
 
 Pull the repository, then set the new versions in `.env` from
 `versions.yaml`: `STATOR_VERSION`, `ARMATURE_VERSION`, `EXCITER_VERSION` and
-`CONNECT_IMAGE`. Then:
+`DYNAMO_CONNECT_IMAGE`. Then:
 
 ```sh
 ./compose-secrets.sh && docker compose up -d

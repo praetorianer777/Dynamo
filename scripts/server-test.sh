@@ -32,7 +32,7 @@ set_value() { sed -i "s|^$1=.*|$1=$2|" "$settings"; grep -qE "^$1=" "$settings" 
 for kv in \
   "COMPOSE_PROJECT_NAME=$SERVER_PROJECT" \
   "COMPOSE_PROFILES=keycloak-server,connect,caddy,sample-data" \
-  "CONNECT_IMAGE=dynamo-connect:dev" \
+  "DYNAMO_CONNECT_IMAGE=dynamo-connect:dev" \
   "STATOR_URL=https://stator.suite.test:$P" \
   "ARMATURE_URL=https://armature.suite.test:$P" \
   "EXCITER_URL=https://exciter.suite.test:$P" \

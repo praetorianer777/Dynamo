@@ -311,6 +311,7 @@ expect_layers "the pins, quick"           "shell check-format"                  
 expect_layers "the pins, full"            "shell check-format test-stack test-server test-chart" full versions.yaml
 expect_layers "the compose stack, full"   "shell check-format test-stack test-server" full deploy/docker-compose.yml
 expect_layers "the server test, full"     "shell check-format test-server"        full  scripts/server-test.sh
+expect_layers "a make file, full"         "shell check-format test-stack test-server test-chart" full mk/stack.mk
 expect_layers "the shell tests"           "shell check-format"                    full  tests/test-versions.sh
 expect_layers "a path nobody listed"      "shell check-format check-go"           quick something/new.txt
 expect_layers "no files known, full"      "shell check-format check-go test-stack test-server test-chart" full

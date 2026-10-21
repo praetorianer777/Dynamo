@@ -23,7 +23,9 @@ while IFS= read -r path; do
     connect/*) need_go=1 need_stack=1 need_server=1 need_chart=1 ;;
     deploy/charts/* | scripts/chart-test.sh | scripts/chart-test-values.yaml | scripts/kind/* | mk/chart.mk) need_chart=1 ;;
     versions.yaml) need_stack=1 need_server=1 need_chart=1 ;;
-    deploy/* | mk/* | Makefile) need_stack=1 need_server=1 ;;
+    deploy/*) need_stack=1 need_server=1 ;;
+    # Every make call reads every mk file, so one can change any layer.
+    mk/* | Makefile) need_stack=1 need_server=1 need_chart=1 ;;
     scripts/server-test.sh) need_server=1 ;;
     tests/* | scripts/* | .github/* | .claude/*) ;;
     *) need_go=1 need_stack=1 need_server=1 need_chart=1 ;;
