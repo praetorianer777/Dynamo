@@ -60,7 +60,7 @@ func runSample(ctx context.Context, cfg config, sc sampleConfig) ([]string, []st
 		warn:        func(f string, a ...any) { warnings = append(warnings, fmt.Sprintf(f, a...)) },
 	}
 	for _, t := range []tool{cfg.stator, cfg.armature, cfg.exciter} {
-		if err := awaitMeta(ctx, t, cfg.waitFor); err != nil {
+		if _, err := awaitMeta(ctx, t, cfg.waitFor); err != nil {
 			return changes, warnings, err
 		}
 	}

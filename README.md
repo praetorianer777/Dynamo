@@ -10,8 +10,9 @@ and releases the combinations that pass.
   object store and one Keycloak whose realm `dynamo`
   (`deploy/keycloak/realm.json`, the canonical copy) all three sign in
   through, and connects them to each other with `dynamo-connect`: Stator and
-  Exciter reach Armature and each other, and each tool's webhooks reach its
-  partners.
+  Exciter reach Armature and each other, each tool's webhooks reach its
+  partners, and a person who signs in to Stator or Exciter is connected to
+  its partners as themselves.
 - `make down` stops the stack and keeps its data; `make reset` deletes it.
 - `docs/compatibility.md` holds the rules that let the tools release at their
   own pace.
@@ -58,8 +59,9 @@ helm install dynamo deploy/charts/dynamo -n dynamo --create-namespace \
 ```
 
 `make test-chart` installs it into a kind cluster and checks that the three
-come up connected: the Job ran, one sign-in through the realm opens all three,
-every webhook delivers, and an upgrade finds nothing left to change. Until
+come up connected: the Job ran, one sign-in through the realm opens all three
+and connects the person across them, every webhook delivers, and an upgrade
+finds nothing left to change. Until
 the tools publish their charts, `DYNAMO_CHARTS_FROM_SOURCE=1` packages them
 from their main branches (`DYNAMO_<TOOL>_SOURCE=owner/repo@branch` for
 another).
@@ -78,13 +80,24 @@ changes only what differs, so it can run again at any time (`make connect`):
 3. Connects Stator and Exciter to Armature and to each other, makes each
    sender's webhook for the topics its receiver asks for, pointed at the
    receiver's api inside the network, and stores the secret in the receiver.
+4. Registers Stator and Exciter as partner apps in each partner that offers
+   `oauth.token-exchange@1` (Stator in Armature and Exciter, Exciter in
+   Armature and Stator), each with its Keycloak client and its address, and
+   stores the app's client id and secret in the caller. A person who signs
+   in to Stator or Exciter is then connected to its partners as themselves,
+   with no token to paste. An app whose secret the caller still holds is left
+   alone; otherwise it gets a new secret, or, in Stator, which issues none,
+   is made anew.
+
+The stack, the server setup and the chart switch the exchange on in Stator
+and Exciter: `TOKEN_EXCHANGE=false` in the environment or in `deploy/.env`,
+or `tokenExchange: false` under each tool's partner in the chart's values,
+switches it off, and people then paste a token on their profile.
 
 `make test-signin` signs alice in to all three through Keycloak on the
-running stack, as a browser would: with her password once, then without.
-
-People still connect their own accounts across tools until the tools connect
-them at sign-in (Cloudster1/Armature#301, #302, praetorianer777/Stator#430,
-#461, #462, Cloudster1/Exciter#273, #274).
+running stack, as a browser would: with her password once, then without. It
+then asks Stator and Exciter, as alice, whether they reach their partners on
+her behalf.
 
 ## Sample data
 

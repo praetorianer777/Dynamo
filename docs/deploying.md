@@ -41,7 +41,23 @@ with Docker Compose.
 
    The test Pod has each tool send a test delivery on every webhook the
    connect Job made. When `check.signIn` names an account, it also signs that
-   account in once and checks that it is then signed in to all three.
+   account in once, checks that it is then signed in to all three, and asks
+   Stator and Exciter as that account whether they reach their partners on
+   its behalf.
+
+## People connected at sign-in
+
+The chart switches the token exchange on in Stator and Exciter
+(`stator.armature.tokenExchange`, `stator.exciter.tokenExchange`,
+`exciter.armature.tokenExchange`, `exciter.stator.tokenExchange`), and the
+connect Job registers each of them as a partner app in the others. A person
+who signs in to Stator or Exciter is then connected to the partners as
+themselves, as long as they are a member there (`members`). Set a switch to
+`false` to have people paste a token on their profile instead.
+
+A release installed before the switches were on gets them with a plain
+`helm upgrade` to this chart version; values of your own that set them to
+`false` keep them off.
 
 Each tool's administrator is kept in a Secret: `stator-bootstrap-admin`,
 `exciter-bootstrap-admin` and `dynamo-armature-admin`. Keycloak's admin is

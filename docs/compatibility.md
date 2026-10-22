@@ -134,7 +134,7 @@ partner apps registered by an administrator.
 | Capability | Offered by | Promises | Relied on by |
 |---|---|---|---|
 | `oauth.partner-tokens@1` | Armature | Authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; the token never exceeds the person's rights and shows in their list as a connected app. | Stator |
-| `oauth.token-exchange@1` | Armature, Stator, Exciter (planned: Cloudster1/Armature#302, praetorianer777/Stator#461, Cloudster1/Exciter#273) | `POST /api/v1/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): `subject_token` is an access token of the shared Keycloak realm whose `azp` is the partner app's Keycloak client id and whose `aud` holds the offering tool's client; the app authenticates with its own credentials; the answer is an access and a refresh token within the person's rights, with no consent page. A partner uses it at the person's sign-in, so nobody connects by hand. | Stator, Exciter (planned: praetorianer777/Stator#430, #462, Cloudster1/Exciter#274) |
+| `oauth.token-exchange@1` | Armature, Stator, Exciter | `POST /api/v1/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): `subject_token` is an access token of the shared Keycloak realm whose `azp` is the partner app's Keycloak client id and whose `aud` holds the offering tool's client; the app authenticates with its own credentials; the answer is an access and a refresh token within the person's rights, with no consent page. A partner uses it at the person's sign-in, so nobody connects by hand. | Stator, Exciter, with the partner apps Dynamo registers |
 | `webhooks.partner@1` | Armature | A partner creates, rotates and changes its own webhook endpoint once an administrator agrees, and never touches others. | Stator |
 
 Every tool's personal access tokens are sent as `Authorization: Bearer
@@ -174,5 +174,3 @@ for these rules:
 
 - Exciter checks Stator for `page-remote-links` under any version; it should
   check `page-remote-links@1`.
-- Nobody connects people across tools at sign-in yet; the issues are listed
-  with `oauth.token-exchange@1` above.

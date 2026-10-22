@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -26,10 +27,13 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	var changes []string
 	note := func(format string, args ...any) { changes = append(changes, fmt.Sprintf(format, args...)) }
 
+	offers := map[string]bool{}
 	for _, t := range []tool{cfg.stator, cfg.armature, cfg.exciter} {
-		if err := awaitMeta(ctx, t, cfg.waitFor); err != nil {
+		m, err := awaitMeta(ctx, t, cfg.waitFor)
+		if err != nil {
 			return changes, err
 		}
+		offers[t.product] = slices.Contains(m.Capabilities, exchangeCapability)
 	}
 
 	armature, err := armatureOwner(ctx, cfg.armature, note)
@@ -58,7 +62,8 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	}
 
 	// Each receiver connects to its sender, then the sender gets the receiver's
-	// webhook, whose secret goes back to the receiver.
+	// webhook, whose secret goes back to the receiver. The same pairs exchange
+	// a person's sign-in, the receiver as the sender's partner app.
 	pairs := []struct {
 		receiver     *session
 		receiverTool tool
@@ -74,6 +79,13 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 		if err := connectPair(ctx, p.receiver, p.receiverTool, p.sender, p.senderTool, note); err != nil {
 			return changes, err
 		}
+		if !offers[p.senderTool.product] {
+			slog.Info("no token exchange offered, so people connect with a token", "caller", p.receiverTool.product, "partner", p.senderTool.product)
+			continue
+		}
+		if err := exchangeApp(ctx, p.receiver, p.receiverTool, p.sender, p.senderTool, note); err != nil {
+			return changes, err
+		}
 	}
 	return changes, nil
 }
@@ -87,7 +99,7 @@ type meta struct {
 }
 
 // awaitMeta waits until the tool answers as itself, at the pinned version.
-func awaitMeta(ctx context.Context, t tool, waitFor time.Duration) error {
+func awaitMeta(ctx context.Context, t tool, waitFor time.Duration) (meta, error) {
 	s := newSession(t.product, t.api)
 	deadline := time.Now().Add(waitFor)
 	for {
@@ -95,20 +107,20 @@ func awaitMeta(ctx context.Context, t tool, waitFor time.Duration) error {
 		err := s.send(ctx, http.MethodGet, "/meta", nil, &m)
 		if err == nil {
 			if !strings.EqualFold(m.Product, t.product) {
-				return fmt.Errorf("%s answers as %q; DYNAMO_%s_API names another tool", t.api, m.Product, strings.ToUpper(t.product))
+				return m, fmt.Errorf("%s answers as %q; DYNAMO_%s_API names another tool", t.api, m.Product, strings.ToUpper(t.product))
 			}
 			if t.version != "" && m.Build.Version != t.version {
-				return fmt.Errorf("%s runs %s, but versions.yaml pins %s; pull the pinned image or change the pin", displayName[t.product], m.Build.Version, t.version)
+				return m, fmt.Errorf("%s runs %s, but versions.yaml pins %s; pull the pinned image or change the pin", displayName[t.product], m.Build.Version, t.version)
 			}
 			slog.Info("answering", "tool", t.product, "version", m.Build.Version)
-			return nil
+			return m, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%s did not answer GET /api/v1/meta within %s: %w", displayName[t.product], waitFor, err)
+			return meta{}, fmt.Errorf("%s did not answer GET /api/v1/meta within %s: %w", displayName[t.product], waitFor, err)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return meta{}, ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
 	}
@@ -280,8 +292,197 @@ func connectPair(ctx context.Context, receiver *session, rt tool, sender *sessio
 }
 
 func sameWebhook(w webhook, url string, topics []string) bool {
-	a, b := slices.Clone(w.Topics), slices.Clone(topics)
+	return w.URL == url && sameSet(w.Topics, topics)
+}
+
+const exchangeCapability = "oauth.token-exchange@1"
+
+// exchangeScopes are what a partner app is given at each provider: what
+// Armature's issue links and Stator's and Exciter's writes need.
+var exchangeScopes = map[string][]string{
+	"armature": {"read", "issue.write"},
+	"stator":   {"read", "write"},
+	"exciter":  {"read", "write"},
+}
+
+type partnerApp struct {
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	KeycloakClientID string   `json:"keycloakClientId"`
+	ClientURI        string   `json:"clientUri"`
+	RedirectURIs     []string `json:"redirectUris"`
+	Scopes           []string `json:"scopes"`
+	Status           string   `json:"status"`
+	Secret           string   `json:"secret"`
+}
+
+// exchangeApp registers the caller as a partner app at the provider and
+// stores the app's client id and secret in the caller, so the caller trades a
+// person's sign-in for their token at the provider without a click.
+func exchangeApp(ctx context.Context, caller *session, ct tool, provider *session, pt tool, note func(string, ...any)) error {
+	held, err := heldApp(ctx, caller, ct, pt)
+	if err != nil {
+		return err
+	}
+	var listed struct {
+		Clients []partnerApp `json:"clients"`
+	}
+	if err := provider.send(ctx, http.MethodGet, "/oauth/clients", nil, &listed); err != nil {
+		return err
+	}
+	name := displayName[ct.product]
+	at := -1
+	if held != "" {
+		at = slices.IndexFunc(listed.Clients, func(a partnerApp) bool { return a.ID == held })
+	}
+	if at < 0 {
+		at = slices.IndexFunc(listed.Clients, func(a partnerApp) bool { return a.Name == name })
+	}
+	want := wantedApp(ct, pt)
+	what := fmt.Sprintf("%s's partner app in %s", name, displayName[pt.product])
+
+	var app partnerApp
+	if at >= 0 {
+		app = listed.Clients[at]
+		if patch := appChanges(app, want, pt.product); len(patch) > 0 {
+			if err := provider.send(ctx, http.MethodPatch, "/oauth/clients/"+app.ID, patch, nil); err != nil {
+				return fmt.Errorf("update %s: %w", what, err)
+			}
+			note("%s has a new %s", what, strings.Join(slices.Sorted(maps.Keys(patch)), ", "))
+		}
+		if app.Status == "pending" {
+			if err := provider.send(ctx, http.MethodPost, "/oauth/clients/"+app.ID+"/approve", nil, nil); err != nil {
+				return fmt.Errorf("allow %s: %w", what, err)
+			}
+			note("%s is allowed", what)
+		}
+		if app.ID == held {
+			return nil
+		}
+	}
+
+	// A secret is shown only when it is made, so the caller gets a new one.
+	var answer struct {
+		Client partnerApp `json:"client"`
+	}
+	switch {
+	case at >= 0 && pt.product != "stator":
+		if err := provider.send(ctx, http.MethodPost, "/oauth/clients/"+app.ID+"/rotate-secret", nil, &answer); err != nil {
+			return fmt.Errorf("give %s a new secret: %w", what, err)
+		}
+	default:
+		if at >= 0 {
+			// Stator issues no new secret to an app, so its app is made anew.
+			if err := provider.send(ctx, http.MethodDelete, "/oauth/clients/"+app.ID, nil, nil); err != nil {
+				return fmt.Errorf("remove %s, whose secret %s lost: %w", what, displayName[ct.product], err)
+			}
+		}
+		if err := provider.send(ctx, http.MethodPost, "/oauth/clients", appBody(want, pt.product), &answer); err != nil {
+			return fmt.Errorf("register %s: %w", what, err)
+		}
+	}
+	if answer.Client.ID == "" || answer.Client.Secret == "" {
+		return fmt.Errorf("%s registered %s but answered no client id and secret", displayName[pt.product], what)
+	}
+
+	creds := map[string]any{"clientId": answer.Client.ID, "clientSecret": answer.Client.Secret}
+	path := "/" + pt.product + "/connection/app"
+	if ct.product == "exciter" {
+		path = "/" + pt.product + "/connection"
+		creds["baseUrl"] = pt.url
+	}
+	if err := caller.send(ctx, http.MethodPut, path, creds, nil); err != nil {
+		return fmt.Errorf("store %s in %s: %w", what, displayName[ct.product], err)
+	}
+	note("%s connects people to %s at sign-in, as %s", displayName[ct.product], displayName[pt.product], what)
+	return nil
+}
+
+// heldApp answers the client id of the caller's app at the provider when the
+// caller holds its secret too, and nothing otherwise.
+func heldApp(ctx context.Context, caller *session, ct tool, pt tool) (string, error) {
+	var got struct {
+		Connection *struct {
+			ClientID        string `json:"clientId"`
+			ClientSecretSet bool   `json:"clientSecretSet"`
+			App             *struct {
+				ClientID     *string `json:"clientId"`
+				SecretSet    bool    `json:"secretSet"`
+				RegisteredBy *string `json:"registeredBy"`
+				Status       string  `json:"status"`
+			} `json:"app"`
+		} `json:"connection"`
+	}
+	if err := caller.send(ctx, http.MethodGet, "/"+pt.product+"/connection", nil, &got); err != nil {
+		return "", err
+	}
+	c := got.Connection
+	switch {
+	case c == nil:
+		return "", nil
+	case ct.product == "exciter":
+		if c.ClientSecretSet {
+			return c.ClientID, nil
+		}
+	case c.App != nil && c.App.ClientID != nil:
+		// Stator says of its Armature app who registered it rather than whether
+		// a secret is stored: one an administrator stored is active with one.
+		if c.App.SecretSet || (c.App.RegisteredBy != nil && *c.App.RegisteredBy == "admin" && c.App.Status == "active") {
+			return *c.App.ClientID, nil
+		}
+	}
+	return "", nil
+}
+
+func wantedApp(ct, pt tool) partnerApp {
+	url := strings.TrimRight(ct.url, "/")
+	app := partnerApp{Name: displayName[ct.product], KeycloakClientID: ct.clientID, Scopes: exchangeScopes[pt.product]}
+	if pt.product != "stator" {
+		app.ClientURI = url
+	}
+	if pt.product == "armature" {
+		app.RedirectURIs = []string{url + "/api/v1/armature/oauth/callback"}
+	}
+	return app
+}
+
+// appBody is the registration each provider takes; Armature alone keeps
+// redirect addresses and Stator no client address.
+func appBody(want partnerApp, provider string) map[string]any {
+	body := map[string]any{"name": want.Name, "keycloakClientId": want.KeycloakClientID, "scopes": want.Scopes}
+	if provider != "stator" {
+		body["clientUri"] = want.ClientURI
+	}
+	if provider == "armature" {
+		body["redirectUris"] = want.RedirectURIs
+		body["confidential"] = true
+	}
+	return body
+}
+
+func appChanges(have, want partnerApp, provider string) map[string]any {
+	patch := map[string]any{}
+	if have.Name != want.Name {
+		patch["name"] = want.Name
+	}
+	if have.KeycloakClientID != want.KeycloakClientID {
+		patch["keycloakClientId"] = want.KeycloakClientID
+	}
+	if !sameSet(have.Scopes, want.Scopes) {
+		patch["scopes"] = want.Scopes
+	}
+	if provider != "stator" && have.ClientURI != want.ClientURI {
+		patch["clientUri"] = want.ClientURI
+	}
+	if provider == "armature" && !sameSet(have.RedirectURIs, want.RedirectURIs) {
+		patch["redirectUris"] = want.RedirectURIs
+	}
+	return patch
+}
+
+func sameSet(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
 	slices.Sort(a)
 	slices.Sort(b)
-	return w.URL == url && slices.Equal(a, b)
+	return slices.Equal(a, b)
 }

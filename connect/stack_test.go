@@ -77,63 +77,129 @@ var loginForm = regexp.MustCompile(`<form[^>]*id="kc-form-login"[^>]*action="([^
 
 var products = []string{"stator", "armature", "exciter"}
 
-// TestStackOneSignInThroughTheRealmOpensAllThree signs a person in to Stator
-// with their password at Keycloak, then into Armature and Exciter on the same
-// browser session, where Keycloak must not ask again. The person is the demo
-// realm's alice unless SIGNIN_EMAIL names another; set empty, it is skipped.
-func TestStackOneSignInThroughTheRealmOpensAllThree(t *testing.T) {
-	env := stackEnv(t)
-	b := browser()
+// signInPerson answers the account the stack checks sign in with: the demo
+// realm's alice unless SIGNIN_EMAIL names another, and none when it is empty.
+func signInPerson(t *testing.T, env map[string]string) (email, password string) {
+	t.Helper()
 	email, named := env["SIGNIN_EMAIL"]
-	password := env["SIGNIN_PASSWORD"]
+	password = env["SIGNIN_PASSWORD"]
 	if !named {
 		email, password = "alice@suite.test", "alice password"
 	}
 	if email == "" {
 		t.Skip("no account to sign in with: set SIGNIN_EMAIL and SIGNIN_PASSWORD to check the sign-in")
 	}
+	return email, password
+}
 
-	for i, product := range products {
-		base := env[strings.ToUpper(product)+"_URL"]
-		resp, err := b.Get(base + "/api/v1/auth/oidc/start")
-		if err != nil {
-			t.Fatalf("%s: start sign-in: %v", product, err)
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		form := loginForm.FindSubmatch(body)
-		switch {
-		case i == 0 && form == nil:
-			t.Fatalf("%s: Keycloak showed no login form at %s (status %d)", product, resp.Request.URL, resp.StatusCode)
-		case i > 0 && form != nil:
-			t.Fatalf("%s: Keycloak asked for the password again, so the sign-in to Stator does not carry over", product)
-		case form != nil:
-			resp, err = b.PostForm(html.UnescapeString(string(form[1])), url.Values{"username": {email}, "password": {password}, "credentialId": {""}})
-			if err != nil {
-				t.Fatalf("%s: post the password to Keycloak: %v", product, err)
-			}
-			body, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if loginForm.Match(body) {
-				t.Fatalf("%s: Keycloak refused %s's password", product, email)
-			}
-		}
-		if !strings.HasPrefix(resp.Request.URL.String(), base) {
-			t.Fatalf("%s: sign-in ended at %s, not back at %s", product, resp.Request.URL, base)
-		}
-
-		me, err := b.Get(base + "/api/v1/auth/me")
-		if err != nil {
-			t.Fatalf("%s: ask who is signed in: %v", product, err)
-		}
-		raw, _ := io.ReadAll(me.Body)
-		me.Body.Close()
-		if me.StatusCode != http.StatusOK || !strings.Contains(string(raw), email) {
-			t.Fatalf("%s: /auth/me answered %d after signing in, not naming %s: %s", product, me.StatusCode, email, raw)
-		}
-		t.Logf("%s: signed in as %s", product, email)
+// signInThroughRealm signs the browser in to the tool at base through
+// Keycloak, with the password where Keycloak asks for it and refusing a
+// second ask where the browser's Keycloak session should carry over.
+func signInThroughRealm(t *testing.T, b *http.Client, product, base, email, password string, first bool) {
+	t.Helper()
+	resp, err := b.Get(base + "/api/v1/auth/oidc/start")
+	if err != nil {
+		t.Fatalf("%s: start sign-in: %v", product, err)
 	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	form := loginForm.FindSubmatch(body)
+	switch {
+	case first && form == nil:
+		t.Fatalf("%s: Keycloak showed no login form at %s (status %d)", product, resp.Request.URL, resp.StatusCode)
+	case !first && form != nil:
+		t.Fatalf("%s: Keycloak asked for the password again, so the first sign-in does not carry over", product)
+	case form != nil:
+		resp, err = b.PostForm(html.UnescapeString(string(form[1])), url.Values{"username": {email}, "password": {password}, "credentialId": {""}})
+		if err != nil {
+			t.Fatalf("%s: post the password to Keycloak: %v", product, err)
+		}
+		body, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if loginForm.Match(body) {
+			t.Fatalf("%s: Keycloak refused %s's password", product, email)
+		}
+	}
+	if !strings.HasPrefix(resp.Request.URL.String(), base) {
+		t.Fatalf("%s: sign-in ended at %s, not back at %s", product, resp.Request.URL, base)
+	}
+
+	me, err := b.Get(base + "/api/v1/auth/me")
+	if err != nil {
+		t.Fatalf("%s: ask who is signed in: %v", product, err)
+	}
+	raw, _ := io.ReadAll(me.Body)
+	me.Body.Close()
+	if me.StatusCode != http.StatusOK || !strings.Contains(string(raw), email) {
+		t.Fatalf("%s: /auth/me answered %d after signing in, not naming %s: %s", product, me.StatusCode, email, raw)
+	}
+	t.Logf("%s: signed in as %s", product, email)
+}
+
+// TestStackOneSignInThroughTheRealmOpensAllThree signs a person in to Stator
+// with their password at Keycloak, then into Armature and Exciter on the same
+// browser session, where Keycloak must not ask again.
+func TestStackOneSignInThroughTheRealmOpensAllThree(t *testing.T) {
+	env := stackEnv(t)
+	email, password := signInPerson(t, env)
+	b := browser()
+	for i, product := range products {
+		signInThroughRealm(t, b, product, env[strings.ToUpper(product)+"_URL"], email, password, i == 0)
+	}
+}
+
+// TestStackASignInConnectsThePersonToThePartners signs a person in to Stator
+// and to Exciter and asks each, as that person, whether it reaches the two
+// partners on their behalf: the token exchange at sign-in that
+// dynamo-connect's partner apps make possible, with no token pasted.
+func TestStackASignInConnectsThePersonToThePartners(t *testing.T) {
+	env := stackEnv(t)
+	email, password := signInPerson(t, env)
+	b := browser()
+	for i, caller := range []struct {
+		product  string
+		partners []string
+	}{{"stator", []string{"armature", "exciter"}}, {"exciter", []string{"armature", "stator"}}} {
+		base := env[strings.ToUpper(caller.product)+"_URL"]
+		signInThroughRealm(t, b, caller.product, base, email, password, i == 0)
+		for _, partner := range caller.partners {
+			raw, status := personAccount(t, b, base, partner)
+			if status != http.StatusOK {
+				t.Errorf("%s: GET /%s/account answered %d: %s", caller.product, partner, status, raw)
+				continue
+			}
+			var got struct {
+				Account struct {
+					Connected bool   `json:"connected"`
+					Status    string `json:"status"`
+				} `json:"account"`
+			}
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("%s: GET /%s/account answered something that is not the account: %s", caller.product, partner, raw)
+			}
+			if !got.Account.Connected || got.Account.Status != "ok" {
+				t.Errorf("%s does not connect %s to %s at sign-in (status %s), so they would have to paste a token: %s",
+					displayName[caller.product], email, displayName[partner], got.Account.Status, raw)
+				continue
+			}
+			t.Logf("%s: %s is connected to %s", caller.product, email, partner)
+		}
+	}
+}
+
+// personAccount asks the tool at base how the signed-in person stands with the partner.
+func personAccount(t *testing.T, b *http.Client, base, partner string) ([]byte, int) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, base+"/api/v1/"+partner+"/account", nil)
+	req.Header.Set("Accept", "application/json")
+	resp, err := b.Do(req)
+	if err != nil {
+		t.Fatalf("ask %s how the person stands with %s: %v", base, partner, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return raw, resp.StatusCode
 }
 
 // TestStackEveryWebhookDelivers has each tool send a test delivery on every
