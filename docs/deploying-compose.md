@@ -49,7 +49,9 @@ other. For Kubernetes, `docs/deploying.md` does the same with the chart.
    ```
 
    The tools migrate their databases first. The connect service then waits
-   until all three answer, connects them and exits. It takes a few minutes
+   until all three answer, connects them and exits. A person who signs in to
+   Stator or Exciter is then connected to the partners as themselves;
+   `TOKEN_EXCHANGE=false` in `.env` leaves them to paste a token instead. It takes a few minutes
    on a first start. `docker compose logs connect` says what it did.
 
 The suite then runs at your addresses. Sign in to Keycloak at
@@ -111,6 +113,7 @@ seals secrets inside its database.
 - in production mode;
 - with a person it adds to Keycloak.
 
-It then signs that person in through HTTPS, checks every webhook and the
+It then signs that person in through HTTPS, checks that Stator and Exciter
+connect them to their partners at that sign-in, checks every webhook and the
 sample data, runs connect again expecting no change, and restarts Keycloak to
 check that the person can still sign in.

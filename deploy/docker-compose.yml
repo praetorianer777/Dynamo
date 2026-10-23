@@ -266,6 +266,10 @@ services:
       STATOR_OUTBOUND_ALLOW: armature-api,exciter-api,${OIDC_HOST}
       STATOR_ARMATURE_BACKCHANNEL: ${ARMATURE_URL}=http://armature-api:8080
       STATOR_EXCITER_BACKCHANNEL: ${EXCITER_URL}=http://exciter-api:8080
+      # Connects each person to Armature and Exciter when they sign in, with
+      # the partner apps dynamo-connect registers.
+      STATOR_ARMATURE_TOKEN_EXCHANGE: ${TOKEN_EXCHANGE:-true}
+      STATOR_EXCITER_TOKEN_EXCHANGE: ${TOKEN_EXCHANGE:-true}
       # What Stator names as its receiver when Armature makes Stator's webhook.
       STATOR_ARMATURE_WEBHOOK_URL: http://stator-api:8080/api/v1/armature/webhook
     networks:
@@ -529,6 +533,8 @@ services:
       EXCITER_OUTBOUND_ALLOW: armature-api,stator-api,${OIDC_HOST}
       EXCITER_ARMATURE_BACKCHANNEL: ${ARMATURE_URL}=http://armature-api:8080
       EXCITER_STATOR_BACKCHANNEL: ${STATOR_URL}=http://stator-api:8080
+      EXCITER_ARMATURE_TOKEN_EXCHANGE: ${TOKEN_EXCHANGE:-true}
+      EXCITER_STATOR_TOKEN_EXCHANGE: ${TOKEN_EXCHANGE:-true}
     networks:
       exciter:
         aliases: [api]

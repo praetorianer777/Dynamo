@@ -63,4 +63,6 @@ carries an audience mapper for the partners it exchanges at:
 - `armature`: audience `exciter`.
 
 Without them a sign-in still works; the partner simply refuses the exchange
-and the person connects by hand.
+and the person connects by hand. The partner apps the exchange runs as are
+registered by `dynamo-connect` with each caller's client id from these
+settings, so a client of another id is followed on the next run.

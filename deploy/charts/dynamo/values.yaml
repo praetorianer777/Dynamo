@@ -166,8 +166,14 @@ stator:
       - { email: bob@suite.test, role: member }
   network:
     outboundAllow: [armature-web, armature-api, exciter-web, exciter-api, keycloak]
+  # Each person is connected to Armature and Exciter when they sign in, with
+  # the partner apps dynamo-connect registers; false leaves them to paste a
+  # token on their profile instead.
   armature:
     webhookUrl: http://stator-api:8080/api/v1/armature/webhook
+    tokenExchange: true
+  exciter:
+    tokenExchange: true
 
 armature:
   fullnameOverride: armature
@@ -218,3 +224,9 @@ exciter:
       - { email: bob@suite.test, role: member }
   network:
     outboundAllow: [armature-web, armature-api, stator-web, stator-api, keycloak]
+  # Each person is connected to Armature and Stator when they sign in, as for
+  # Stator above.
+  armature:
+    tokenExchange: true
+  stator:
+    tokenExchange: true
