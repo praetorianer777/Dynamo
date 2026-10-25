@@ -35,6 +35,12 @@ for pair in stator:armature stator:exciter exciter:armature exciter:stator armat
     || fail "${REALM_FILE} has no audience mapper on the client ${pair%:*} for ${pair#*:}, so ${pair#*:} refuses ${pair%:*}'s token exchange; add one (docs/keycloak.md)."
 done
 
+# Keycloak matches a trailing wildcard as a plain prefix, so one inside the host
+# lets in any host that merely starts with it, such as localhost.example.
+loose=$(grep -noE '"https?://[^/:"]*\*"' "${SRC}/${REALM_FILE}")
+[[ -z "$loose" ]] && pass "every return address ends its host before a wildcard" \
+  || fail "${REALM_FILE} has a wildcard inside a host, which admits any host that starts the same: $(paste -sd' ' <<< "$loose"); write it as http://localhost:* and http://localhost/*."
+
 stale=$(cd "$SRC" && grep -rnE '/realms/[A-Za-z0-9_-]+' deploy mk Makefile README.md \
   | grep -vE "/realms/(${REALM}|master)\b")
 [[ -z "$stale" ]] && pass "every issuer of the stack names /realms/${REALM}" \
