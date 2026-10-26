@@ -24,18 +24,29 @@ WORK=$(mktemp -d)
 export KUBECONFIG="$WORK/kubeconfig"
 
 say() { echo "🧪 $*"; }
+# What a failed run leaves to find out why: every Job that failed, every pod
+# that is not ready with its events, the databases, and whether the node ran
+# short. A gate prints only its last lines, so the databases come last.
 cleanup() {
   local rc=$?
   if (( rc != 0 )) && [[ -s "$KUBECONFIG" ]]; then
     echo "--- what the cluster says"
-    kubectl -n "$NS" get pods,jobs 2>/dev/null || true
+    kubectl -n "$NS" get pods,jobs -o wide 2>/dev/null || true
+    echo "--- the node"
+    kubectl describe nodes 2>/dev/null | sed -n '/^Conditions:/,/^Addresses:/p;/^Allocated resources:/,/^Events:/p' || true
     for job in $(kubectl -n "$NS" get jobs -o jsonpath='{range .items[?(@.status.failed)]}{.metadata.name}{" "}{end}' 2>/dev/null); do
       echo "--- job $job"
+      kubectl -n "$NS" get job "$job" -o jsonpath='{range .status.conditions[*]}{.type}: {.reason}: {.message}{"\n"}{end}' 2>/dev/null || true
       kubectl -n "$NS" logs "job/$job" --tail=40 2>/dev/null || true
     done
-    for pod in $(kubectl -n "$NS" get pods --no-headers 2>/dev/null | awk '$3 ~ /CrashLoop|Error/ {print $1}' | head -4); do
-      echo "--- pod $pod"
-      kubectl -n "$NS" logs "$pod" --tail=15 2>/dev/null || true
+    for pod in $(kubectl -n "$NS" get pods --no-headers 2>/dev/null | awk '$3 != "Completed" { split($2, r, "/"); if (r[1] != r[2]) print $1 }' | head -8); do
+      echo "--- pod $pod, not ready"
+      kubectl -n "$NS" get events --field-selector "involvedObject.name=$pod" --sort-by=.lastTimestamp 2>/dev/null | tail -8 || true
+      kubectl -n "$NS" logs "$pod" --all-containers --tail=15 2>/dev/null || true
+    done
+    for pod in $(kubectl -n "$NS" get pods --no-headers -o custom-columns=:metadata.name 2>/dev/null | grep -- '-postgresql-'); do
+      echo "--- database $pod"
+      kubectl -n "$NS" logs "$pod" --all-containers --tail=20 2>/dev/null || true
     done
   fi
   [[ -n "${DYNAMO_KEEP_CLUSTER:-}" ]] || kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" >/dev/null 2>&1 || true
@@ -79,13 +90,28 @@ images=$(helm template "$RELEASE" "$WORK/chart" -n "$NS" -f /work/scripts/chart-
   | sed -nE 's/^\s*image: "?([^" ]+)"?.*/\1/p' | sort -u)
 # Only the tools' own images: the rest the node pulls itself, and kind cannot
 # load a multi-platform image a host pulled for one platform.
+pull=()
 for img in $(grep -E '^ghcr\.io/(praetorianer777|cloudster1)/' <<< "$images"); do
   if [[ -z "${DYNAMO_FROM_RELEASE:-}" ]] && docker image inspect "$img" >/dev/null 2>&1; then
     kind load docker-image --name "$CLUSTER" "$img" >/dev/null && echo "   loaded $img"
   else
-    echo "   $img is pulled by the cluster"
+    pull+=("$img")
   fi
 done
+# Pulled before the install: the tools' roles Jobs give their database 900s
+# from the moment Helm creates them, which a node still pulling Keycloak and
+# three Postgres images on a slow line can use up.
+pull+=($(grep -vE '^ghcr\.io/(praetorianer777|cloudster1)/' <<< "$images"))
+start=$SECONDS
+pids=()
+for img in "${pull[@]}"; do
+  docker exec "$CLUSTER-control-plane" crictl pull "$img" >/dev/null &
+  pids+=($!)
+done
+for i in "${!pids[@]}"; do
+  wait "${pids[$i]}" || { echo "   The node could not pull ${pull[$i]}; check that the registry is reachable from here and run again."; exit 1; }
+done
+echo "   the node pulled ${#pull[@]} images in $((SECONDS - start))s"
 
 say "install"
 kubectl create namespace "$NS" >/dev/null
