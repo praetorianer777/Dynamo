@@ -622,6 +622,9 @@ services:
       DYNAMO_EXCITER_OIDC_CLIENT_ID: ${EXCITER_OIDC_CLIENT_ID}
       DYNAMO_EXCITER_OIDC_CLIENT_SECRET: ${EXCITER_OIDC_CLIENT_SECRET}
       DYNAMO_MEMBERS: ${DYNAMO_MEMBERS}
+    # What it sent the tools, since they never answer a client secret.
+    volumes:
+      - connect-state:/var/lib/dynamo-connect
     networks: [suite]
     restart: "no"
 
@@ -668,6 +671,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  connect-state:
   keycloak-postgres:
   caddy-data:
   caddy-config:

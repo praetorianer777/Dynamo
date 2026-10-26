@@ -31,6 +31,8 @@ type config struct {
 	members                   []member
 	expectUnchanged           bool
 	waitFor                   time.Duration
+	// Where dynamo-connect remembers what it sent; it must outlive the run.
+	stateDir string
 }
 
 // member is somebody of the realm let into every tool before their first sign-in.
@@ -123,6 +125,10 @@ func load(getenv func(string) string) (config, error) {
 		groupsClaim:     getenv("DYNAMO_OIDC_GROUPS_CLAIM"),
 		expectUnchanged: getenv("DYNAMO_EXPECT_UNCHANGED") == "1",
 		waitFor:         defaultWait,
+		stateDir:        getenv("DYNAMO_STATE_DIR"),
+	}
+	if cfg.stateDir == "" {
+		cfg.stateDir = defaultStateDir
 	}
 	if len(missing) > 0 {
 		return cfg, fmt.Errorf("set %s", strings.Join(missing, ", "))

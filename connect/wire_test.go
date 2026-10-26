@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -19,14 +20,16 @@ type fakeTool struct {
 	product, version string
 	email, password  string
 
-	mu          sync.Mutex
-	signedUp    bool
-	provider    *oidcProvider
-	users       map[string]bool
-	connections map[string]*connection
-	secrets     map[string]string
-	webhooks    []webhook
-	topics      []string
+	mu       sync.Mutex
+	signedUp bool
+	provider *oidcProvider
+	// The client secret its sign-in holds, which it never answers.
+	clientSecret string
+	users        map[string]bool
+	connections  map[string]*connection
+	secrets      map[string]string
+	webhooks     []webhook
+	topics       []string
 	// What the tool offers as a provider of the token exchange, and the
 	// partner apps it holds; appIDs and appSecrets are what it holds as a caller.
 	exchange   bool
@@ -97,7 +100,8 @@ func (f *fakeTool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		answer(200, map[string]any{"provider": f.provider})
 	case route == "PUT /oidc-provider":
-		f.provider = &oidcProvider{Issuer: body["issuer"].(string), ClientID: body["clientId"].(string), GroupsClaim: body["groupsClaim"].(string), Enabled: true}
+		f.clientSecret, _ = body["clientSecret"].(string)
+		f.provider = &oidcProvider{Issuer: body["issuer"].(string), ClientID: body["clientId"].(string), GroupsClaim: body["groupsClaim"].(string), Enabled: true, HasSecret: f.clientSecret != ""}
 		answer(200, map[string]any{"provider": f.provider})
 	case route == "POST /users":
 		email := body["email"].(string)
@@ -282,7 +286,9 @@ func startFakes(t *testing.T) (config, map[string]*fakeTool) {
 	}
 	s, a, e := httptest.NewServer(fs["stator"]), httptest.NewServer(fs["armature"]), httptest.NewServer(fs["exciter"])
 	t.Cleanup(func() { s.Close(); a.Close(); e.Close() })
-	return testConfig(s, a, e, fs), fs
+	cfg := testConfig(s, a, e, fs)
+	cfg.stateDir = t.TempDir()
+	return cfg, fs
 }
 
 func TestConnectsAllThreeAndASecondRunChangesNothing(t *testing.T) {
@@ -477,4 +483,49 @@ func (c config) toolByProduct(product string) tool {
 		return c.armature
 	}
 	return c.exciter
+}
+
+func TestAChangedClientSecretReachesTheTool(t *testing.T) {
+	cfg, fs := startFakes(t)
+	ctx := context.Background()
+	if _, err := run(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.armature.clientSecret = "rotated"
+	changes, err := run(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || fs["armature"].clientSecret != "rotated" {
+		t.Fatalf("want Armature alone given the new secret, got %v and Armature holding %q", changes, fs["armature"].clientSecret)
+	}
+	if again, err := run(ctx, cfg); err != nil || len(again) != 0 {
+		t.Fatalf("the run after changed %v, %v", again, err)
+	}
+}
+
+func TestASecretSentWithoutARecordIsSentAgain(t *testing.T) {
+	cfg, fs := startFakes(t)
+	ctx := context.Background()
+	if _, err := run(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	fs["stator"].clientSecret = "set by hand"
+	cfg.stateDir = t.TempDir()
+	changes, err := run(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 3 || fs["stator"].clientSecret != cfg.stator.clientSecret {
+		t.Fatalf("with nothing remembered, want each tool's secret sent once more, got %v and Stator holding %q", changes, fs["stator"].clientSecret)
+	}
+}
+
+func TestAStateThatCannotBeKeptStopsTheRun(t *testing.T) {
+	cfg, _ := startFakes(t)
+	cfg.stateDir = filepath.Join(t.TempDir(), "missing")
+	_, err := run(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "give it a writable volume there") {
+		t.Fatalf("want a sentence naming the volume, got %v", err)
+	}
 }

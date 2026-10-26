@@ -96,6 +96,9 @@ connect:
     pullPolicy: IfNotPresent
   # How long the Job waits for the three apis after the tools' own hooks.
   wait: 15m
+  # A volume of a few bytes where the Job keeps what it sent the tools.
+  storage: 64Mi
+  storageClass: ""
 
 # Sample projects imported into all three after they are connected: each
 # source becomes an Armature project with its issues, a Stator space with its
