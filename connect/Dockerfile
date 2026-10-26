@@ -10,7 +10,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dynamo-connect .
 RUN CGO_ENABLED=0 go test -c -tags stack -trimpath -ldflags="-s -w" -o /dynamo-check .
 
 FROM alpine:3.22
-RUN adduser -D -u 10001 dynamo
+# What dynamo-connect remembers between runs; a volume mounted here starts
+# out owned by dynamo.
+RUN adduser -D -u 10001 dynamo && install -d -o dynamo -g dynamo -m 700 /var/lib/dynamo-connect
 COPY --from=build /dynamo-connect /usr/local/bin/dynamo-connect
 COPY --from=build /dynamo-check /usr/local/bin/dynamo-check
 USER dynamo

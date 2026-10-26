@@ -26,6 +26,23 @@ stringData:
   exciter-client-secret: {{ .Values.oidc.clients.exciter.secret | quote }}
 ---
 {{- end }}
+# What the connect Job sent the tools, since they never answer a client
+# secret: kept between runs so a changed secret is sent again.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-connect
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: dynamo-connect
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.connect.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests: { storage: {{ .Values.connect.storage }} }
+---
 # Connects the three once all of them answer: after their own migrate and
 # bootstrap hooks (weight 10), on every install and upgrade.
 apiVersion: batch/v1
@@ -51,6 +68,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        fsGroup: 10001
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: connect
@@ -62,6 +80,11 @@ spec:
             capabilities: { drop: [ALL] }
           env:
             {{- include "dynamo.connectEnv" . | nindent 12 }}
+          volumeMounts:
+            - { name: state, mountPath: /var/lib/dynamo-connect }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits: { memory: 128Mi }
+      volumes:
+        - name: state
+          persistentVolumeClaim: { claimName: {{ .Release.Name }}-connect }

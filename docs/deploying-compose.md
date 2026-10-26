@@ -67,8 +67,8 @@ object store and Mailpit:
 
 | Profile | What it adds |
 | --- | --- |
-| `keycloak-server` | Keycloak with its own PostgreSQL. It imports `keycloak/realm.server.json` on its first start: the realm without demo users, each client's secret from `.env`, each tool's address as its only redirect. Its accounts survive restarts. |
-| `connect` | dynamo-connect, on every `docker compose up`: it changes only what differs, so it is safe to run again. |
+| `keycloak-server` | Keycloak with its own PostgreSQL. It imports `keycloak/realm.server.json` on its first start: the realm without demo users, each client's secret from `.env`, each tool's address as its only redirect. Its accounts survive restarts; connect keeps the three clients at the addresses and secrets in `.env` afterwards. |
+| `connect` | dynamo-connect, on every `docker compose up`: it changes only what differs, so it is safe to run again. A changed address or client secret in `.env` reaches the tools and, through `KEYCLOAK_ADMIN_URL`, the realm's clients. It remembers what it sent in the volume `connect-state`. |
 | `caddy` | HTTPS for the four addresses, with certificates from Let's Encrypt (`caddy/Caddyfile`). |
 | `sample-data` | Imports `DYNAMO_SAMPLE_SOURCES` after connect (the README's "Sample data"). |
 

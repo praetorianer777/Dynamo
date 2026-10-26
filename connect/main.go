@@ -31,6 +31,10 @@ type config struct {
 	members                   []member
 	expectUnchanged           bool
 	waitFor                   time.Duration
+	// Where dynamo-connect remembers what it sent; it must outlive the run.
+	stateDir string
+	// Set where the realm's clients follow the settings, else left alone.
+	keycloak *keycloakAdmin
 }
 
 // member is somebody of the realm let into every tool before their first sign-in.
@@ -123,6 +127,13 @@ func load(getenv func(string) string) (config, error) {
 		groupsClaim:     getenv("DYNAMO_OIDC_GROUPS_CLAIM"),
 		expectUnchanged: getenv("DYNAMO_EXPECT_UNCHANGED") == "1",
 		waitFor:         defaultWait,
+		stateDir:        getenv("DYNAMO_STATE_DIR"),
+	}
+	if cfg.stateDir == "" {
+		cfg.stateDir = defaultStateDir
+	}
+	if u := getenv("DYNAMO_KEYCLOAK_ADMIN_URL"); u != "" {
+		cfg.keycloak = &keycloakAdmin{url: u, username: need("DYNAMO_KEYCLOAK_ADMIN_USERNAME"), password: need("DYNAMO_KEYCLOAK_ADMIN_PASSWORD")}
 	}
 	if len(missing) > 0 {
 		return cfg, fmt.Errorf("set %s", strings.Join(missing, ", "))

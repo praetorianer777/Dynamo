@@ -5,8 +5,8 @@
 # by Caddy (its own CA instead of Let's Encrypt) and production mode. Then the
 # stack checks sign a person of the realm in through HTTPS, test every
 # webhook and look at the sample data; connect and sample-data run again
-# without anything to change, and after Keycloak restarts the person still
-# signs in.
+# without anything to change, after Keycloak restarts the person still signs
+# in, and so they do after an address and a client secret change.
 #
 # make test-server runs it with SERVER_PROJECT and SERVER_PORT, the HTTPS
 # port, the next one being Caddy's HTTP port. DYNAMO_KEEP_SERVER=1 leaves the
@@ -116,7 +116,7 @@ done
 chmod 600 "$work/stack.env"
 
 hosts=""
-for h in stator armature exciter sso; do hosts="$hosts${hosts:+,}$h.suite.test:$P=127.0.0.1:$P"; done
+for h in stator armature exciter sso wiki; do hosts="$hosts${hosts:+,}$h.suite.test:$P=127.0.0.1:$P"; done
 checks() {
   docker run --rm -u "$(id -u):$(id -g)" --network host \
     -v "$ROOT:/work" -v "$ROOT/.cache/go:/cache" \
@@ -136,5 +136,26 @@ say "Keycloak keeps its accounts"
 dc restart keycloak-server > /dev/null
 dc up -d --wait keycloak-server > /dev/null
 checks StackOneSignIn
+
+say "a new address and a new client secret"
+# Keycloak imported the realm on its first start and keeps it; the tools hold
+# the secret connect sent them. Both must follow the settings on the next up.
+set_value STATOR_URL "https://wiki.suite.test:$P"
+set_value ARMATURE_OIDC_CLIENT_SECRET "$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 || true)"
+sed -i "s|^STATOR_URL=.*|STATOR_URL=$(value STATOR_URL)|" "$work/stack.env"
+dc up -d --quiet-pull
+finished connect
+log="$(dc logs --no-color connect)"
+for want in "client stator returns to https://wiki.suite.test:$P" "client armature has its new secret" "Armature signs in with client armature's current secret"; do
+  if ! grep -qF "$want" <<< "$log"; then
+    echo "   connect did not say \"$want\"; it said:"
+    sed 's/^/   /' <<< "$log" | tail -n 25
+    exit 1
+  fi
+done
+echo "   connect moved Stator's client and gave Armature and its client the new secret"
+finished sample-data
+checks StackOneSignIn
+dc run --rm -e DYNAMO_EXPECT_UNCHANGED=1 connect 2>&1 | tail -n 1 | sed 's/^/   /'
 
 say "the suite runs on a server from deploy/.env.example"

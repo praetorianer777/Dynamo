@@ -27,6 +27,16 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	var changes []string
 	note := func(format string, args ...any) { changes = append(changes, fmt.Sprintf(format, args...)) }
 
+	st, err := loadState(cfg.stateDir)
+	if err != nil {
+		return changes, err
+	}
+	if cfg.keycloak != nil {
+		if err := realmClients(ctx, cfg, note); err != nil {
+			return changes, err
+		}
+	}
+
 	offers := map[string]bool{}
 	for _, t := range []tool{cfg.stator, cfg.armature, cfg.exciter} {
 		m, err := awaitMeta(ctx, t, cfg.waitFor)
@@ -56,7 +66,7 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 		s *session
 		t tool
 	}{{stator, cfg.stator}, {armature, cfg.armature}, {exciter, cfg.exciter}} {
-		if err := ssoSignIn(ctx, t.s, t.t, cfg, note); err != nil {
+		if err := ssoSignIn(ctx, t.s, t.t, cfg, st, note); err != nil {
 			return changes, err
 		}
 	}
@@ -152,13 +162,14 @@ type oidcProvider struct {
 	Issuer       string `json:"issuer"`
 	ClientID     string `json:"clientId"`
 	Enabled      bool   `json:"enabled"`
+	HasSecret    bool   `json:"hasSecret"`
 	GroupsClaim  string `json:"groupsClaim"`
 	CreateGroups bool   `json:"createGroups"`
 }
 
 // ssoSignIn points a tool's single sign-on at the realm with the tool's own
-// client, so a realm or client changed later reaches a running installation.
-func ssoSignIn(ctx context.Context, s *session, t tool, cfg config, note func(string, ...any)) error {
+// client, so a realm, client or client secret changed later reaches it.
+func ssoSignIn(ctx context.Context, s *session, t tool, cfg config, st *state, note func(string, ...any)) error {
 	var current struct {
 		Provider *oidcProvider `json:"provider"`
 		oidcProvider
@@ -171,7 +182,9 @@ func ssoSignIn(ctx context.Context, s *session, t tool, cfg config, note func(st
 	if current.Provider != nil {
 		have = *current.Provider
 	}
-	if have.Issuer == cfg.issuer && have.ClientID == t.clientID && have.Enabled && (have.GroupsClaim == "" || have.GroupsClaim == cfg.groupsClaim) {
+	fingerprint := signInFingerprint(cfg.issuer, t.clientID, t.clientSecret)
+	same := have.Issuer == cfg.issuer && have.ClientID == t.clientID && have.Enabled && (have.GroupsClaim == "" || have.GroupsClaim == cfg.groupsClaim)
+	if same && have.HasSecret && st.SignIn[t.product] == fingerprint {
 		return nil
 	}
 	body := map[string]any{
@@ -181,7 +194,15 @@ func ssoSignIn(ctx context.Context, s *session, t tool, cfg config, note func(st
 	if err := s.send(ctx, http.MethodPut, "/oidc-provider", body, nil); err != nil {
 		return fmt.Errorf("point %s's sign-in at %s with client %s: %w", displayName[t.product], cfg.issuer, t.clientID, err)
 	}
-	note("%s signs in through %s as client %s", displayName[t.product], cfg.issuer, t.clientID)
+	st.SignIn[t.product] = fingerprint
+	if err := st.save(); err != nil {
+		return err
+	}
+	if same {
+		note("%s signs in with client %s's current secret", displayName[t.product], t.clientID)
+	} else {
+		note("%s signs in through %s as client %s", displayName[t.product], cfg.issuer, t.clientID)
+	}
 	return nil
 }
 

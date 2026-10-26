@@ -44,6 +44,8 @@ done
 pass "the tools' keys are 32 bytes in base64"
 [[ "$(value OIDC_ISSUER "$settings")" == "https://sso.example.com/realms/dynamo" && "$(value OIDC_HOST "$settings")" == keycloak ]] \
   && pass "sign-in follows from the bundled Keycloak's address" || fail "OIDC_ISSUER or OIDC_HOST were not set from KEYCLOAK_URL"
+[[ "$(value KEYCLOAK_ADMIN_URL "$settings")" == http://keycloak:8080 ]] \
+  && pass "connect keeps the bundled Keycloak's realm in step" || fail "KEYCLOAK_ADMIN_URL is '$(value KEYCLOAK_ADMIN_URL "$settings")', not the bundled Keycloak inside, so a changed address or secret would not reach the realm"
 
 leftover=$(grep -E '^[A-Z0-9_]+=$' "$settings" | cut -d= -f1 | grep -vxE 'SMTP_USER|SMTP_PASSWORD|CADDY_GLOBAL_OPTIONS|DYNAMO_MEMBERS|GITHUB_TOKEN' | paste -sd' ')
 [[ -z "$leftover" ]] && pass "nothing else is left empty" || fail "these are empty and neither optional nor generated: $leftover"
@@ -71,6 +73,8 @@ sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=connect,caddy|; s|^OIDC_ISSUER=.
 "$SCRIPT" "$own" > /dev/null 2>&1
 [[ "$(value OIDC_ISSUER "$own")" == "https://id.example.org/realms/team" && "$(value OIDC_HOST "$own")" == id.example.org ]] \
   && pass "a Keycloak of one's own keeps its issuer" || fail "with a Keycloak of one's own, OIDC_ISSUER or OIDC_HOST came out wrong"
+[[ -z "$(value KEYCLOAK_ADMIN_URL "$own")" ]] \
+  && pass "and its realm is left to its administrators" || fail "with a Keycloak of one's own, KEYCLOAK_ADMIN_URL was set to $(value KEYCLOAK_ADMIN_URL "$own")"
 
 kept="$work/kept"
 cp "$SRC/deploy/.env.example" "$kept"

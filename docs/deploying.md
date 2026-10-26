@@ -110,8 +110,11 @@ The Job runs again on every upgrade and changes only what is missing.
 ## Upgrade
 
 `helm upgrade` with a newer chart version runs the tools' migrations and then
-the connect Job again, which changes only what is missing. Run `helm test`
-again afterwards.
+the connect Job again, which changes only what is missing. A client secret
+changed in `oidc.clients` or in `oidc.existingSecret` reaches the tools on
+that run: the Job remembers what it sent them in the volume
+`<release>-connect` (`connect.storage`), since a tool never answers which
+secret it holds. Run `helm test` again afterwards.
 
 ## Before you install: the same install in kind
 

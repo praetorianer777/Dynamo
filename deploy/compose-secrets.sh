@@ -78,12 +78,14 @@ for name in "${KEYS[@]}"; do
 done
 
 # With the bundled Keycloak, sign-in follows from its address on every run,
-# so a changed KEYCLOAK_URL carries over; the tools reach it inside.
+# so a changed KEYCLOAK_URL carries over; the tools and dynamo-connect reach
+# it inside.
 keycloak="$(value KEYCLOAK_URL)"
 if [[ ",$(value COMPOSE_PROFILES)," == *,keycloak-server,* && -n "$keycloak" ]]; then
   set_value OIDC_ISSUER "${keycloak%/}/realms/dynamo"
   set_value OIDC_BACKCHANNEL "${keycloak%/}=http://keycloak:8080"
   set_value OIDC_HOST keycloak
+  set_value KEYCLOAK_ADMIN_URL http://keycloak:8080
 fi
 # The host the tools fetch the issuer's keys from, which their outbound
 # guards must let through when it is a private address.
