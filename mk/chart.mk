@@ -2,14 +2,23 @@
 # needs run in a container of their own (scripts/kind/Dockerfile).
 KIND_TOOLS_IMAGE := dynamo-kind-tools:dev
 CONNECT_IMAGE := ghcr.io/praetorianer777/dynamo-connect:$(shell sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}/\1/p' $(ROOT)/deploy/charts/dynamo/Chart.yaml)
+# Named after the checkout, as the stack's project is, so two worktrees'
+# gates never create, use or delete each other's cluster. Recursive, since
+# stack.mk is read after this file.
+DYNAMO_CLUSTER ?= dynamo-chart-$(STACK_HASH)
 
 .PHONY: test-chart
 test-chart: ## Install the umbrella chart into kind and check the three come up connected
 	[ -n "$$DYNAMO_FROM_RELEASE" ] || docker build -q -t $(CONNECT_IMAGE) $(ROOT)/connect >/dev/null
 	docker build -q -t $(KIND_TOOLS_IMAGE) $(ROOT)/scripts/kind >/dev/null
 	docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v $(ROOT):/work:ro \
-		-e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_FROM_RELEASE -e DYNAMO_EXISTING_SECRETS -e DYNAMO_KEEP_CLUSTER \
+		-e DYNAMO_CLUSTER=$(DYNAMO_CLUSTER) -e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_FROM_RELEASE -e DYNAMO_EXISTING_SECRETS -e DYNAMO_KEEP_CLUSTER \
 		-e DYNAMO_STATOR_SOURCE -e DYNAMO_ARMATURE_SOURCE -e DYNAMO_EXCITER_SOURCE $(KIND_TOOLS_IMAGE) /work/scripts/chart-test.sh
+
+# The cluster make test-chart uses, for tests/test-chart.sh.
+.PHONY: chart-cluster
+chart-cluster:
+	@echo $(DYNAMO_CLUSTER)
 
 CHART_VERSION := $(shell sed -n 's/^version: *//p' $(ROOT)/deploy/charts/dynamo/Chart.yaml)
 CHART_REGISTRY := oci://ghcr.io/praetorianer777/charts
