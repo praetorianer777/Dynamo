@@ -31,6 +31,11 @@ func run(ctx context.Context, cfg config) ([]string, error) {
 	if err != nil {
 		return changes, err
 	}
+	if cfg.keycloak != nil {
+		if err := realmClients(ctx, cfg, note); err != nil {
+			return changes, err
+		}
+	}
 
 	offers := map[string]bool{}
 	for _, t := range []tool{cfg.stator, cfg.armature, cfg.exciter} {

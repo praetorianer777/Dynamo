@@ -622,6 +622,11 @@ services:
       DYNAMO_EXCITER_OIDC_CLIENT_ID: ${EXCITER_OIDC_CLIENT_ID}
       DYNAMO_EXCITER_OIDC_CLIENT_SECRET: ${EXCITER_OIDC_CLIENT_SECRET}
       DYNAMO_MEMBERS: ${DYNAMO_MEMBERS}
+      # Where the realm outlives its import, as keycloak-server's does: there
+      # the tools' clients follow the addresses and secrets set here.
+      DYNAMO_KEYCLOAK_ADMIN_URL: ${KEYCLOAK_ADMIN_URL:-}
+      DYNAMO_KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      DYNAMO_KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
     # What it sent the tools, since they never answer a client secret.
     volumes:
       - connect-state:/var/lib/dynamo-connect

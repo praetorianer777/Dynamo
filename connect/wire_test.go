@@ -256,15 +256,6 @@ func (f *fakeTool) appOf(caller string) *partnerApp {
 	return nil
 }
 
-func toStrings(v any) []string {
-	var out []string
-	xs, _ := v.([]any)
-	for _, x := range xs {
-		out = append(out, x.(string))
-	}
-	return out
-}
-
 func testConfig(stator, armature, exciter *httptest.Server, fs map[string]*fakeTool) config {
 	at := func(product string, srv *httptest.Server) tool {
 		f := fs[product]
