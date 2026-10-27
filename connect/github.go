@@ -236,7 +236,7 @@ func (g *github) fetch(ctx context.Context, address string) ([]byte, error) {
 	switch {
 	case resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0",
 		resp.StatusCode == http.StatusTooManyRequests:
-		return nil, fmt.Errorf("GitHub's rate limit is used up (%s); set sampleData.github.tokenSecret to a token, which allows 5000 requests an hour, or take fewer issues", address)
+		return nil, fmt.Errorf("GitHub's rate limit is used up (%s); give dynamo-connect a GitHub token (GITHUB_TOKEN, or the chart's sampleData.github.tokenSecret), which allows 5000 requests an hour, or take fewer issues", address)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("GitHub answered %s with %d: %s", address, resp.StatusCode, strings.TrimSpace(string(body[:min(len(body), 200)])))
 	}
