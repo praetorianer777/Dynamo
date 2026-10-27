@@ -116,8 +116,13 @@ func TestARateLimitSaysToSetAToken(t *testing.T) {
 	defer srv.Close()
 	g := &github{api: srv.URL, client: srv.Client()}
 	_, err := g.project(context.Background(), sampleSource{repo: "o/tool", key: "TOOL"}, 10)
-	if err == nil || !strings.Contains(err.Error(), "sampleData.github.tokenSecret") {
-		t.Fatalf("got %v", err)
+	if err == nil {
+		t.Fatal("a used-up rate limit gave no error")
+	}
+	for _, setting := range []string{"GITHUB_TOKEN", "sampleData.github.tokenSecret"} {
+		if !strings.Contains(err.Error(), setting) {
+			t.Errorf("the error does not name %s: %v", setting, err)
+		}
 	}
 }
 

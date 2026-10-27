@@ -379,11 +379,13 @@ got="$(push_json | DYNAMO_GATE=yes .claude/hooks/branch-guard.sh | jq -r '.hookS
 [[ "$got" == deny ]] && echo "ok    gate  refused DYNAMO_GATE=yes in the environment" || { echo "FAIL  gate  DYNAMO_GATE=yes in the environment gave $got"; fail=1; }
 
 echo "== a gate that does not finish blocks the push (#328)"
-printf '#!/bin/sh\nexec sleep 37\n' > run-tests.sh
+# The fraction is this run's pid, so a run beside this one never sees or kills this stand-in (#57).
+STAND_IN="sleep 37.$$"
+printf '#!/bin/sh\nexec %s\n' "$STAND_IN" > run-tests.sh
 got="$(push_json "DYNAMO_GATE_LIMIT=3 git push -u origin HEAD" | env -u DYNAMO_GATE_LIMIT .claude/hooks/branch-guard.sh | jq -r '.hookSpecificOutput | .permissionDecision + " " + .permissionDecisionReason')"
 if [[ "$got" == deny\ *"did not finish within"*"DYNAMO_GATE_LIMIT=<seconds> git push"* ]]; then echo "ok    timeout  denied the push"; else echo "FAIL  a gate that ran out of time gave: $got"; fail=1; fi
 sleep 1
-if pgrep -f '^sleep 37$' > /dev/null; then echo "FAIL  timeout  the gate was left running"; fail=1; pkill -f '^sleep 37$'; else echo "ok    timeout  nothing was left running"; fi
+if pgrep -xf "$STAND_IN" > /dev/null; then echo "FAIL  timeout  the gate was left running"; fail=1; pkill -xf "$STAND_IN"; else echo "ok    timeout  nothing was left running"; fi
 grep -q $'\tgate_limit=3 (command)\t.*\tgate_timeout=3' "$LOG3" && echo "ok    timeout  logged" || { echo "FAIL  timeout  not logged"; fail=1; }
 cd "$W"
 
