@@ -10,11 +10,11 @@ appVersion: "0.1.2"
 # refuses any other.
 dependencies:
   - name: stator
-    version: 0.1.0
+    version: 0.2.0
     repository: oci://ghcr.io/praetorianer777/charts
   - name: armature
-    version: 0.1.0
+    version: 0.2.0
     repository: oci://ghcr.io/cloudster1/charts
   - name: exciter
-    version: 0.1.0
+    version: 0.2.0
     repository: oci://ghcr.io/cloudster1/charts
