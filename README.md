@@ -59,8 +59,9 @@ To sign in through a Keycloak or realm of your own, set `OIDC_ISSUER` and
 the tools' clients; `docs/keycloak.md` lists the settings and what the realm
 must hold.
 
-The sign-in page, the settings and how access is granted are the same in
-all three; `docs/administration.md` says how.
+The sign-in page, the settings, how access is granted and the look and feel
+are the same in all three; `docs/administration.md` and
+`docs/look-and-feel.md` say how.
 
 ## On a server with Docker Compose
 

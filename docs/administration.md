@@ -66,6 +66,48 @@ under it, and a person waiting to be let in sees an error.
   tokens. It takes in Exciter's "all tokens" and "all connected apps".
 - **Users** holds the join requests and switching an account off or back on.
 
+## Settings of a project or space
+
+Each project (Armature, Exciter) and space (Stator) has settings of its own, at
+`/projects/<key>/settings/<section>` or `/spaces/<key>/settings/<section>`.
+Exciter's `/p/<key>` and Stator's `/s/<key>` redirect there, since `/p/`
+means a project in one tool and a page in the other.
+
+- **Layout:** Armature's: tabs in the page header, one route per section, so a
+  section can be linked, survives a reload and steps back with Back; `Page
+  width="content"`. A section whose feature is off is not shown. Deeper pages,
+  such as the workflow designer, sit below their section
+  (`.../settings/workflows/<id>`). The crumbs are the project or space, then
+  Settings.
+- **Who:** every member may open the settings and see how the project or space
+  is set up; what they may not change is read-only, and sections only its
+  administrators use are hidden. A section opened without the right says who
+  to ask: "Only the project's administrators change its settings. Ask one of
+  them, or ask for the role."
+- **Getting there:** a "Settings" entry in the project's or space's sidebar, for
+  every member, and in the palette.
+- **Saving:** one form per section with Save; a switch saves when flipped. What
+  happened is a toast. Archiving offers Undo; deleting asks in a
+  `ConfirmDialog`.
+
+### The sections, in this order
+
+| Section | Armature | Exciter | Stator |
+| --- | --- | --- | --- |
+| General | General | Details | Details, with a link to the stale pages |
+| Work items | Issue types, Fields, Issue view | Types, Attributes, Fields | |
+| Workflow | Workflows | Workflow, Approval | Reviews |
+| Links and trace | | Links, Trace | |
+| Quality and risks | | Quality, Risks | |
+| Templates | | Templates | Templates |
+| Members and permissions | | Permissions, now a route of its own | Permissions with anonymous access, Guests |
+| Integrations | Components, Repositories, Automation | | Shortcuts |
+| Import and export | Import | Import, ReqIF, Word | Export |
+| Trash and archive | | Trash | Trash, Archive |
+
+General ends with archiving and deleting. A project's teams stay outside the
+settings, as Armature's `/projects/<key>/teams`.
+
 ## Access
 
 `/admin/access` has the tabs **Roles**, **Matrix**, **Members**, **Groups** and
