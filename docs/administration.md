@@ -55,12 +55,12 @@ under it, and a person waiting to be let in sees an error.
 
 ### The Admin sections
 
-| Section | Armature | Stator | Exciter |
-| --- | --- | --- | --- |
-| People and access | Installation, Access, Users | Installation (with the brand), Access, Users | Installation (with the default theme), Access, Users |
-| Work | Holidays, Workflows, Issue types, Project templates, Labels, Automation, Fields, Issue view | Hub, Templates, Stale pages, Example space | Link types |
-| Integrations | Connected apps, Webhooks | Armature, Exciter, Connected apps, Webhooks | Armature, Stator, Connected apps, Webhooks |
-| Records | Audit log | Audit log, Export and import | Audit log |
+| Section | Armature | Stator | Exciter | Rotor |
+| --- | --- | --- | --- | --- |
+| People and access | Installation, Access, Users | Installation (with the brand), Access, Users | Installation (with the default theme), Access, Users | Installation, Access, Users |
+| Work | Holidays, Workflows, Issue types, Project templates, Labels, Automation, Fields, Issue view | Hub, Templates, Stale pages, Example space | Link types | Workspaces, Unattended writes |
+| Integrations | Connected apps, Webhooks | Armature, Exciter, Connected apps, Webhooks | Armature, Stator, Connected apps, Webhooks | Model providers, LangSmith, Tools, Connected apps (all assistants) |
+| Records | Audit log | Audit log, Export and import | Audit log | Audit log, Usage, Retention |
 
 - **Connected apps** is the installation's apps, with each person's grants and
   tokens. It takes in Exciter's "all tokens" and "all connected apps".
@@ -68,7 +68,10 @@ under it, and a person waiting to be let in sees an error.
 
 ## Settings of a project or space
 
-Each project (Armature, Exciter) and space (Stator) has settings of its own, at
+Each project (Armature, Exciter), space (Stator) and workflow (Rotor) has
+settings of its own. Rotor shares workflows one at a time, so a workflow is
+its container, at `/workflows/<id>/settings/<section>`: General, Versions,
+Sharing (its grants) and Triggers. Projects and spaces are at
 `/projects/<key>/settings/<section>` or `/spaces/<key>/settings/<section>`.
 Exciter's `/p/<key>` and Stator's `/s/<key>` redirect there, since `/p/`
 means a project in one tool and a page in the other.
@@ -118,7 +121,7 @@ settings, as Armature's `/projects/<key>/teams`.
 | Role | what | A named set of permissions. Each tool starts with built-in roles and administrators may add their own. A role lists its permissions outright, with no inheritance. Built-in roles cannot be deleted. |
 | Matrix | what each role means | Every permission the tool checks, against every role, with a box at each crossing that saves when ticked. The global administrator's right to administer stays ticked. |
 | Group | who | A named set of people. Its members are added by hand, or come from the identity provider through the group's provider claim, which is the name in the token's `groups` claim. Provider memberships are replaced at every sign-in, so somebody removed in Keycloak loses what the group gave them. |
-| Grant | who holds what, where | A role, a scope and a subject. The scope is the whole installation or one project or space; the subject is a person or a group. |
+| Grant | who holds what, where | A role, a scope and a subject. The scope is the whole installation or one project, space or, in Rotor, workflow; the subject is a person or a group. |
 
 - **What somebody may do** in a project or space is the union of every grant
   that reaches them: their own or their groups', and for that project or space
@@ -139,6 +142,10 @@ settings, as Armature's `/projects/<key>/teams`.
   - Exciter: administrator over the whole installation, and in a project
     viewer, reviewer, editor and project administrator, from today's project
     roles.
+  - Rotor: administrator over the whole installation, and on a workflow
+    runner, editor and workflow administrator. Today's owner becomes the
+    workflow's administrator, and sharing with groups or everyone becomes
+    runner grants.
 
 ### Members and seats
 

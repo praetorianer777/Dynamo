@@ -1,11 +1,11 @@
 # Look and feel
 
-The three web apps come from one kit: the same tokens, fonts, colours, radii
-and theme engine, with Stator's kit ported from Armature's. What they share
-is not repeated here. This page settles where they drifted apart, and names
-for each point the version the three follow. The sign-in page, the settings,
-the Admin page, the settings of a project or space and access are in
-[administration.md](administration.md).
+Stator, Armature and Exciter come from one kit: the same tokens, fonts,
+colours, radii and theme engine, with Stator's kit ported from Armature's.
+What they share is not repeated here. This page settles where they drifted
+apart, and names for each point the version all the tools follow, Rotor too.
+The sign-in page, the settings, the Admin page, the settings of a project or
+space and access are in [administration.md](administration.md).
 
 ## Feedback
 
@@ -83,6 +83,22 @@ the Admin page, the settings of a project or space and access are in
 - **The default theme** is the installation's and is called "everyone's".
   Administrators set it where the themes are, not on a page of its own. Each
   tool can follow a partner's theme.
+
+## Pages only some tools have
+
+- **Queues of work**, such as Rotor's approvals or Stator's reviews, are a page
+  of their own in the sidebar with a `Count`. Each new item is also a
+  notification.
+- **Editors that need the room**, such as Rotor's YAML and graph, Armature's
+  workflow designer and Exciter's, use `Page width="wide"`. Code is set in the
+  mono font with the theme's tokens, light and dark.
+- **Live runs and statuses** use the shared status and chart tokens, never
+  colours of their own.
+- **Consent**, when a partner app asks for a person's token, is the sign-in
+  page's frame. The card names the app and what it asks for, with "Allow" as
+  the primary button and "Deny" beside it.
+- **Usage** a person causes is theirs, under Settings. The installation's is a
+  report under Admin, Records.
 
 ## Accessibility
 
