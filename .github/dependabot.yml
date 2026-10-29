@@ -1,0 +1,19 @@
+# Weekly version updates, on top of the security updates turned on in the
+# repository's settings. Minor and patch releases come as one pull request per
+# ecosystem; a major release comes on its own, since it needs reading.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /connect
+    schedule:
+      interval: weekly
+    groups:
+      gomod-connect:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        update-types: [minor, patch]
