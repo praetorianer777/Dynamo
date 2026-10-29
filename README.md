@@ -5,9 +5,10 @@ Runs [Stator](https://github.com/praetorianer777/Stator),
 [Exciter](https://github.com/Cloudster1/Exciter) together, tests them as one
 and releases the combinations that pass.
 
-- `versions.yaml` pins one released version of each tool.
+- `versions.yaml` pins one released version of each tool, and of the one
+  Kroki that draws diagrams for all three.
 - `make up` starts all three from those images, with their databases, one
-  object store and one Keycloak whose realm `dynamo`
+  object store, one Kroki and one Keycloak whose realm `dynamo`
   (`deploy/keycloak/realm.json`, the canonical copy) all three sign in
   through, and connects them to each other with `dynamo-connect`: Stator and
   Exciter reach Armature and each other, each tool's webhooks reach its

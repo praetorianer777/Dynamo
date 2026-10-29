@@ -2,7 +2,9 @@
 
 `deploy/docker-compose.yml` runs Stator, Armature and Exciter at the versions
 in `versions.yaml` on one machine, with a Keycloak holding the realm `dynamo`,
-one object store and Mailpit. The same file runs the development stack
+one object store, Mailpit and one Kroki, which draws the diagrams of Stator
+and Exciter in its secure mode and reaches nothing outside the apis. The same
+file runs the development stack
 behind `make up`. On a server its settings come from `deploy/.env`, and
 `docker compose up` alone starts the suite and connects the three to each
 other. For Kubernetes, `docs/deploying.md` does the same with the chart.
@@ -63,7 +65,7 @@ changes on later runs either.
 ## What runs
 
 `COMPOSE_PROFILES` in `.env` chooses what runs besides the three tools, the
-object store and Mailpit:
+object store, Mailpit and Kroki:
 
 | Profile | What it adds |
 | --- | --- |

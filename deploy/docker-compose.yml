@@ -9,10 +9,15 @@
 # service to one called "web", so each tool keeps a network of its own where
 # its services answer by those names. Only the apis and workers join "suite",
 # under names no two tools share, beside Keycloak, the object store and mail.
+# The suite's one Kroki has a network of its own, which only the apis join.
 name: dynamo
 
 networks:
   suite:
+  # Internal: no gateway out of the host, which "suite" has for mail and the
+  # sample data, so Kroki reaches nothing but the apis.
+  kroki:
+    internal: true
   stator:
   armature:
   exciter:
@@ -159,6 +164,27 @@ services:
     ports:
       - "127.0.0.1:${MAILPIT_PORT}:8025"
 
+  # Draws the diagrams of all three: PlantUML, Structurizr, Graphviz and D2
+  # for Stator, PlantUML for Exciter. The tag is versions.yaml's kroki pin,
+  # which tests/test-compose.sh holds it to. Secure mode keeps PlantUML from
+  # reading files and addresses; unsafe mode would let a page read this
+  # container's files, so never here or anywhere else.
+  kroki:
+    image: yuzutech/kroki:0.34.0
+    environment:
+      KROKI_SAFE_MODE: secure
+    networks: [kroki]
+    # PlantUML, Graphviz and Vert.x write scratch files to /tmp alone.
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
   # ── Stator ────────────────────────────────────────────────────────────
 
   stator-postgres:
@@ -242,6 +268,7 @@ services:
       stator-valkey: {condition: service_healthy}
       stator-converter: {condition: service_healthy}
       seaweedfs: {condition: service_healthy}
+      kroki: {condition: service_healthy}
       keycloak: {condition: service_healthy, required: false}
       keycloak-server: {condition: service_healthy, required: false}
       stator-seed: {condition: service_completed_successfully}
@@ -258,6 +285,9 @@ services:
       STATOR_S3_SECRET_KEY: ${S3_SECRET_KEY}
       STATOR_CONVERTER_URL: http://converter:3000
       STATOR_RENDER_URL: http://render:8090
+      # Only the api draws, and only it is on Kroki's network; the worker
+      # shares this list but never reads it.
+      STATOR_KROKI_URL: http://kroki:8000
       STATOR_APP_URL: ${STATOR_URL}
       STATOR_SECRET_KEY: ${STATOR_SECRET_KEY}
       STATOR_SMTP_ADDR: ${SMTP_ADDR}
@@ -276,6 +306,7 @@ services:
       stator:
         aliases: [api]
       suite:
+      kroki:
     healthcheck:
       <<: *app-health
       test: ["CMD", "/app/api", "-healthcheck"]
@@ -402,6 +433,8 @@ services:
       armature:
         aliases: [api]
       suite:
+      # Draws nothing yet; when it does, it uses the suite's Kroki.
+      kroki:
     healthcheck:
       <<: *app-health
       test: ["CMD", "/app/api", "-healthcheck"]
@@ -511,6 +544,7 @@ services:
       keycloak: {condition: service_healthy, required: false}
       keycloak-server: {condition: service_healthy, required: false}
       exciter-seed: {condition: service_completed_successfully}
+      kroki: {condition: service_healthy}
     environment: &exciter-env
       EXCITER_ENV: ${DYNAMO_ENV}
       EXCITER_SECURE_COOKIES: ${SECURE_COOKIES}
@@ -525,6 +559,8 @@ services:
       EXCITER_S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       EXCITER_S3_SECRET_KEY: ${S3_SECRET_KEY}
       EXCITER_RENDER_URL: http://render:8090
+      # As for Stator: the api alone draws and reaches Kroki.
+      EXCITER_KROKI_URL: http://kroki:8000
       EXCITER_APP_URL: ${EXCITER_URL}
       EXCITER_SMTP_ADDR: ${SMTP_ADDR}
       EXCITER_MAIL_FROM: ${EXCITER_MAIL_FROM}
@@ -539,6 +575,7 @@ services:
       exciter:
         aliases: [api]
       suite:
+      kroki:
     healthcheck:
       <<: *app-health
       test: ["CMD", "/app/api", "-healthcheck"]

@@ -2,8 +2,9 @@
 # Installs deploy/charts/dynamo into a kind cluster, as an operator would, and
 # checks that the three tools come up connected: the connect Job ran, helm
 # test finds one sign-in through the realm opens all three and every webhook
-# delivers, the sample project is in all three, and an upgrade runs the Jobs
-# again without anything left to change.
+# delivers, the sample project is in all three, the suite's one Kroki is in
+# secure mode and reaches nothing, and an upgrade runs the Jobs again without
+# anything left to change.
 #
 # Runs in the image from scripts/kind/Dockerfile (make test-chart), with the
 # repository at /work, the host's Docker socket and the host's network. A
@@ -158,6 +159,50 @@ done
 
 say "helm test"
 helm test "$RELEASE" -n "$NS" --logs --timeout 10m | sed 's/^/   /'
+
+say "Kroki, in secure mode and with no way out"
+if [[ -n "${DYNAMO_FROM_RELEASE:-}" ]] && ! kubectl -n "$NS" get deploy kroki >/dev/null 2>&1; then
+  echo "   this release runs no Kroki of the suite's own"
+else
+  krokis=$(kubectl -n "$NS" get deploy -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.template.spec.containers[*].image}{"\n"}{end}' | grep -c 'yuzutech/kroki:' || true)
+  [[ "$krokis" == 1 ]] || { echo "   the release runs $krokis Kroki Deployments; the tools' own must stay off beside the suite's one"; exit 1; }
+  mode=$(kubectl -n "$NS" get deploy kroki -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="KROKI_SAFE_MODE")].value}')
+  [[ "$mode" == secure ]] || { echo "   Kroki runs with KROKI_SAFE_MODE '$mode', not secure"; exit 1; }
+  kubectl -n "$NS" rollout status deploy/kroki --timeout=300s >/dev/null
+  draw() { # pod, PlantUML source
+    kubectl -n "$NS" exec "$1" -- wget -q -O - -T 10 --header 'Content-Type: text/plain' --post-data "$2" http://kroki:8000/plantuml/svg 2>&1
+  }
+  api=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=stator,app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
+  svg=$(draw "$api" $'@startuml\nAlice -> Bob: hello\n@enduml') || true
+  grep -q '<svg' <<< "$svg" || { echo "   Stator's api got no drawing from Kroki: ${svg:0:300}"; exit 1; }
+  echo "   Stator's api reaches Kroki and gets a PlantUML drawing"
+  # In secure mode the include is dropped without a word and the rest draws.
+  svg=$(draw "$api" $'@startuml\n!include /etc/passwd\nAlice -> Bob: hello\n@enduml') || true
+  if ! grep -q '<svg' <<< "$svg" || grep -q 'root:' <<< "$svg"; then
+    echo "   a PlantUML include of /etc/passwd was not dropped, so Kroki is not in secure mode: ${svg:0:300}"
+    exit 1
+  fi
+  echo "   secure mode keeps PlantUML from reading Kroki's files"
+  kroki=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=kroki -o jsonpath='{.items[0].metadata.name}')
+  # Any answer at all counts as reached, so no -f.
+  reach() { kubectl -n "$NS" exec "$1" -- curl -sS -o /dev/null -m 5 "$2" 2>&1; }
+  reach "$kroki" http://localhost:8000/health >/dev/null \
+    || { echo "   curl in the Kroki pod could not reach Kroki itself, so the checks below would prove nothing"; exit 1; }
+  s3=$(kubectl -n "$NS" get svc s3 -o jsonpath='{.spec.clusterIP}')
+  for to in http://1.1.1.1/ "http://$s3:8333/"; do
+    if reach "$kroki" "$to" >/dev/null; then
+      echo "   Kroki reached $to, though its NetworkPolicy lets nothing leave"
+      exit 1
+    fi
+  done
+  echo "   Kroki reaches neither the internet nor the cluster's other Services"
+  store=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=object-store -o jsonpath='{.items[0].metadata.name}')
+  if reach "$store" http://kroki:8000/health >/dev/null; then
+    echo "   the object store reached Kroki, though its NetworkPolicy lets in the tools' apis alone"
+    exit 1
+  fi
+  echo "   a pod that is no tool's api cannot reach Kroki"
+fi
 
 if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
   say "no secret in the release"

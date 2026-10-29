@@ -1,7 +1,10 @@
 # The versions Dynamo runs and tests together, one line per tool. A release of
 # a tool changes its line by pull request once the combination passed; the
 # image tags are these versions exactly, as the tools' release workflows push
-# them.
+# them. Below them, the one Kroki that draws diagrams for all three, at
+# Stator's pin; tests/test-compose.sh and tests/test-chart.sh hold the stack
+# and the chart to it.
 stator: 0.2.0
 armature: 0.2.0
 exciter: 0.2.0
+kroki: 0.34.0

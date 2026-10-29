@@ -77,7 +77,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           {
-            echo "Stator, Armature and Exciter at the versions in versions.yaml, installed and connected by one chart:"
+            echo "Stator, Armature and Exciter at the versions in versions.yaml, with the one Kroki that draws their diagrams, installed and connected by one chart:"
             echo
             sed 's/^/- /' versions.yaml | grep -v '^- #'
             echo

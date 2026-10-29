@@ -146,6 +146,7 @@ stack-env:
 		'ARMATURE_ADMIN_PASSWORD=$(ARMATURE_ADMIN_PASSWORD)' \
 		'EXCITER_ADMIN_EMAIL=$(EXCITER_ADMIN_EMAIL)' \
 		'EXCITER_ADMIN_PASSWORD=$(EXCITER_ADMIN_PASSWORD)' \
+		'KROKI_DRAWS=stator,exciter' \
 		> $(STACK_ENV_FILE)
 
 # The connect job runs to its end before up returns, so a stack that came up

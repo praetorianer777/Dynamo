@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The umbrella chart installs exactly what versions.yaml pins, and its realm
-# is the canonical one. Rendering and installing it is make test-chart's job.
+# The umbrella chart installs exactly what versions.yaml pins, one Kroki
+# among them, and its realm is the canonical one. Rendering and installing it is make test-chart's job.
 #
 # Needs bash, cmp, make and sed only; no cluster and no network.
 set -u
@@ -18,6 +18,16 @@ for t in stator armature exciter; do
   dep=$(sed -n "/- name: ${t}\$/{n;s/^ *version: *//p}" "$CHART/Chart.yaml")
   [[ "$dep" == "$pin" ]] && pass "the chart depends on ${t} ${pin}, the pin" \
     || fail "Chart.yaml depends on ${t} '${dep}', but versions.yaml pins ${pin}; change both together."
+done
+
+pin=$(sed -n "s/^kroki: *//p" "$SRC/versions.yaml")
+img=$(sed -n '/^kroki:/,/^[a-z]/s/^  image: *//p' "$CHART/values.yaml")
+[[ "$img" == "yuzutech/kroki:${pin}" ]] && pass "the chart's Kroki is the pinned ${pin}" \
+  || fail "values.yaml runs Kroki '${img}', but versions.yaml pins ${pin}; set kroki.image to yuzutech/kroki:${pin}."
+for t in stator exciter; do
+  [[ "$(sed -n "/^${t}:/,/^[a-z]/s/^  kroki: *//p" "$CHART/values.yaml")" == "{ enabled: false }" ]] \
+    && pass "${t}'s own Kroki is off, so the suite runs one" \
+    || fail "values.yaml must set ${t}.kroki to { enabled: false }, or ${t} runs a second Kroki beside the suite's."
 done
 
 cmp -s "$CHART/files/realm.json" "$SRC/deploy/keycloak/realm.json" \

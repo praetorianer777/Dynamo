@@ -1,10 +1,16 @@
 # Deploying the suite
 
 One Helm release installs Stator, Armature and Exciter at the versions in
-`versions.yaml`, with a Keycloak holding the realm `dynamo` and one S3 store.
-After every install and upgrade, the connect Job wires the three to each
-other. `helm test` then checks from inside the cluster that they are
-connected.
+`versions.yaml`, with a Keycloak holding the realm `dynamo`, one S3 store and
+one Kroki for diagrams. After every install and upgrade, the connect Job
+wires the three to each other. `helm test` then checks from inside the
+cluster that they are connected.
+
+The tools' charts 0.2.0 cannot be pointed at that Kroki yet
+(praetorianer777/Stator#558, Cloudster1/Exciter#451), and their own Krokis
+stay off so the suite runs one: until then Stator draws Mermaid diagrams
+alone and Exciter shows diagrams as their source. The compose stack draws
+them all.
 
 On one machine without Kubernetes, `docs/deploying-compose.md` does the same
 with Docker Compose.

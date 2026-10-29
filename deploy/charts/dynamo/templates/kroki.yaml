@@ -1,0 +1,103 @@
+{{- if .Values.kroki.enabled }}
+{{- $k := .Values.kroki }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kroki
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: kroki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kroki
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kroki
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      automountServiceAccountToken: false
+      # The image's own user, kroki, by number: the image names it by name,
+      # which runAsNonRoot cannot check.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: kroki
+          image: {{ $k.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            # Unsafe mode lets PlantUML include any file of the container and
+            # any address, so it is never a value.
+            - { name: KROKI_SAFE_MODE, value: secure }
+            - { name: KROKI_PORT, value: "8000" }
+          ports:
+            - { name: http, containerPort: 8000 }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # PlantUML, Graphviz and Vert.x write scratch files here alone.
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml $k.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kroki
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: kroki
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+{{- /*
+What keeps page content inside the installation is that Kroki cannot reach
+out: secure mode drops PlantUML's includes, and this drops whatever it misses.
+No egress rule at all, not even DNS, because no diagram language needs the
+network.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kroki
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kroki
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range $t := list "stator" "armature" "exciter" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $t }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: api
+        {{- end }}
+      ports:
+        - { protocol: TCP, port: 8000 }
+{{- end }}
