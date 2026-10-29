@@ -88,6 +88,20 @@ objectStore:
   existingSecret: ""
   storage: 10Gi
 
+# The one Kroki that draws the tools' diagrams, the Service kroki on port 8000,
+# in secure mode and with no way out: its NetworkPolicy lets in the three
+# apis alone and lets nothing leave. The tools' own Krokis stay off below, so
+# there is only this one. Their charts 0.2.0 cannot be pointed at it yet
+# (praetorianer777/Stator#558, Cloudster1/Exciter#451), so in the chart Stator
+# draws Mermaid alone and Exciter shows diagrams as their source until then.
+kroki:
+  enabled: true
+  # versions.yaml's kroki pin; tests/test-chart.sh refuses any other.
+  image: yuzutech/kroki:0.34.0
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
 connect:
   image:
     repository: ghcr.io/praetorianer777/dynamo-connect
@@ -169,6 +183,7 @@ stator:
       - { email: bob@suite.test, role: member }
   network:
     outboundAllow: [armature-web, armature-api, exciter-web, exciter-api, keycloak]
+  kroki: { enabled: false }
   # Each person is connected to Armature and Exciter when they sign in, with
   # the partner apps dynamo-connect registers; false leaves them to paste a
   # token on their profile instead.
@@ -227,6 +242,8 @@ exciter:
       - { email: bob@suite.test, role: member }
   network:
     outboundAllow: [armature-web, armature-api, stator-web, stator-api, keycloak]
+  # On in Exciter's own chart.
+  kroki: { enabled: false }
   # Each person is connected to Armature and Stator when they sign in, as for
   # Stator above.
   armature:
