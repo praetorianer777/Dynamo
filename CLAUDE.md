@@ -37,7 +37,9 @@ those images and never builds a tool. Each tool keeps its own databases,
 Valkey and network, because each web image proxies to a service called `api`;
 the apis and workers also join the network `suite`, where they are
 `stator-api`, `armature-api` and `exciter-api`. Keycloak, object storage and
-mail are shared.
+mail are shared, and so is Kroki, which draws the tools' diagrams: it is pinned
+in `versions.yaml` and sits on the internal network `kroki`, which only the
+apis join, so it has no way out.
 
 ## Style
 

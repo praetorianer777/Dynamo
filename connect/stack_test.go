@@ -436,3 +436,49 @@ func TestStackTheSampleIsInAllThree(t *testing.T) {
 		t.Errorf("%s relates to %s, want %s, whose issue it mentions", features[3], got, features[1])
 	}
 }
+
+// TestStackToolsDrawThroughTheSuitesKroki has each tool KROKI_DRAWS names
+// draw a PlantUML diagram through its api, which only the suite's Kroki can
+// draw. The chart cannot point the tools at it yet (Stator#558, Exciter#451).
+func TestStackToolsDrawThroughTheSuitesKroki(t *testing.T) {
+	env := stackEnv(t)
+	if env["KROKI_DRAWS"] == "" {
+		t.Skip("KROKI_DRAWS names no tool that draws through the suite's Kroki")
+	}
+	ctx := context.Background()
+	diagram := map[string]string{"language": "plantuml", "source": "@startuml\nAlice -> Bob: hello\n@enduml"}
+	for _, product := range strings.Split(env["KROKI_DRAWS"], ",") {
+		P := strings.ToUpper(product)
+		s := newSession(product, env[P+"_URL"])
+		s.client = browser()
+		if err := s.signIn(ctx, env[P+"_ADMIN_EMAIL"], env[P+"_ADMIN_PASSWORD"]); err != nil {
+			t.Fatal(err)
+		}
+		var svg string
+		switch product {
+		case "stator":
+			var raw []byte
+			if err := s.send(ctx, http.MethodPost, "/diagrams", diagram, &raw); err != nil {
+				t.Errorf("Stator could not draw a PlantUML diagram: %v", err)
+				continue
+			}
+			svg = string(raw)
+		case "exciter":
+			var got struct {
+				SVG string `json:"svg"`
+			}
+			if err := s.send(ctx, http.MethodPost, "/diagrams", diagram, &got); err != nil {
+				t.Errorf("Exciter could not draw a PlantUML diagram: %v", err)
+				continue
+			}
+			svg = got.SVG
+		default:
+			t.Fatalf("KROKI_DRAWS names %s, which draws no diagrams; name stator or exciter", product)
+		}
+		if !strings.Contains(svg, "<svg") || !strings.Contains(svg, "Alice") {
+			t.Errorf("%s answered a PlantUML diagram with something that is not its drawing: %.300s", displayName[product], svg)
+			continue
+		}
+		t.Logf("%s drew a PlantUML diagram through the suite's Kroki", product)
+	}
+}

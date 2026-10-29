@@ -1,7 +1,8 @@
 # Deploying the suite
 
 One Helm release installs Stator, Armature and Exciter at the versions in
-`versions.yaml`, with a Keycloak holding the realm `dynamo` and one S3 store.
+`versions.yaml`, with a Keycloak holding the realm `dynamo`, one S3 store and
+one Kroki for diagrams.
 After every install and upgrade, the connect Job wires the three to each
 other. `helm test` then checks from inside the cluster that they are
 connected.

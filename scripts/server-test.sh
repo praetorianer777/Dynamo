@@ -112,6 +112,7 @@ done
   echo "SIGNIN_EMAIL=tester@suite.test"
   echo "SIGNIN_PASSWORD=$password"
   echo "DYNAMO_SAMPLE_SOURCES=sparkplug"
+  echo "KROKI_DRAWS=stator,exciter"
 } > "$work/stack.env"
 chmod 600 "$work/stack.env"
 
