@@ -21,6 +21,33 @@ and releases the combinations that pass.
 Nothing is installed on the host: every tool and toolchain runs in a
 container. `make help` lists the targets.
 
+## On a fresh machine
+
+The machine needs git, make and Docker with its Compose and buildx plugins:
+Docker Engine on Linux, Docker Desktop elsewhere. Your user must be able to
+reach Docker without sudo. Then:
+
+```sh
+git clone https://github.com/praetorianer777/Dynamo.git
+cd Dynamo
+make up
+```
+
+`make up` first runs `make check-host`. It stops when something the stack
+needs is missing:
+- Docker or one of its plugins;
+- Compose 2.24 or newer;
+- a free port for each tool, Keycloak and Mailpit.
+
+It warns, without stopping, when the machine is small or slow:
+- less than 4 GB of memory for Docker;
+- less than 20 GB of free disk, while the images take about 11 GB;
+- an arm64 machine. The tools publish amd64 images only, so they run
+  emulated there.
+
+Each message says what to do. The first start pulls every image and takes a
+few minutes. It ends by printing the addresses; sign in as below.
+
 ## Signing in
 
 Open any of the three and sign in with single sign-on as `alice` /

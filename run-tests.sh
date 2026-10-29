@@ -25,7 +25,7 @@ wanted() { [[ " ${selected[*]} " == *" $1 "* ]]; }
 
 shell_tests() {
   ./tests/test-versions.sh && ./tests/test-realm.sh && ./tests/test-chart.sh && ./tests/test-compose.sh \
-    && ./tests/test-compose-secrets.sh \
+    && ./tests/test-compose-secrets.sh && ./tests/test-check-host.sh \
     && ./.claude/hooks/tests/branch-guard-test.sh
 }
 

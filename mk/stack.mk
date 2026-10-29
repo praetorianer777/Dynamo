@@ -149,10 +149,14 @@ stack-env:
 		'KROKI_DRAWS=stator,exciter' \
 		> $(STACK_ENV_FILE)
 
+.PHONY: check-host
+check-host: ## Check that this machine can run the stack, and say what to do about what is missing
+	@$(ROOT)/scripts/check-host.sh $(KEYCLOAK_PORT) $(STATOR_WEB_PORT) $(ARMATURE_WEB_PORT) $(EXCITER_WEB_PORT) $(MAILPIT_PORT)
+
 # The connect job runs to its end before up returns, so a stack that came up
 # is a connected one.
 .PHONY: up
-up: stack-env ## Start all three at the pinned versions, connected to each other, and say where they are
+up: check-host stack-env ## Start all three at the pinned versions, connected to each other, and say where they are
 	docker compose up -d --wait --quiet-pull
 	docker compose run --rm --build connect
 	@echo "Stator     http://localhost:$(STATOR_WEB_PORT)    $(STATOR_VERSION)"
