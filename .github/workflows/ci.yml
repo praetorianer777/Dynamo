@@ -13,14 +13,14 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./run-tests.sh shell check-format check-go
 
   stack:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Until every pinned version is released there is nothing to pull, so
       # the images are built from the tools' main branches instead, and the
       # job says it tested those rather than the pins.
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: pins
         run: |
           missing=""
@@ -76,7 +76,7 @@ jobs:
     env:
       DYNAMO_EXISTING_SECRETS: ${{ matrix.secrets == 'existing' && '1' || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The same as the stack job, and the tools' charts come from source too.
       - id: pins
         run: |
