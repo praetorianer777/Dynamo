@@ -19,6 +19,9 @@ import (
 type fakeTool struct {
 	product, version string
 	email, password  string
+	// How many more times meta answers 0.0.1, as an old pod does while a
+	// rolling upgrade replaces it.
+	stale int
 
 	mu       sync.Mutex
 	signedUp bool
@@ -67,7 +70,12 @@ func (f *fakeTool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.exchange {
 			caps = append(caps, exchangeCapability)
 		}
-		answer(200, map[string]any{"product": f.product, "build": map[string]string{"version": f.version}, "capabilities": caps})
+		version := f.version
+		if f.stale > 0 {
+			f.stale--
+			version = "0.0.1"
+		}
+		answer(200, map[string]any{"product": f.product, "build": map[string]string{"version": version}, "capabilities": caps})
 		return
 	case "GET /auth/signup":
 		answer(200, map[string]bool{"open": !f.signedUp, "first": !f.signedUp})
@@ -426,6 +434,15 @@ func TestRefusesAToolAtAnotherVersionThanThePin(t *testing.T) {
 	_, err := run(context.Background(), cfg)
 	if err == nil || !strings.Contains(err.Error(), "versions.yaml pins 9.9.9") {
 		t.Fatalf("want the pin named in the error, got %v", err)
+	}
+}
+
+func TestWaitsOutTheOldVersionOfARollingUpgrade(t *testing.T) {
+	cfg, fs := startFakes(t)
+	cfg.waitFor = 10 * time.Second
+	fs["stator"].stale = 2
+	if _, err := run(context.Background(), cfg); err != nil {
+		t.Fatalf("the old pod's answer failed the run instead of being waited out: %v", err)
 	}
 }
 

@@ -109,6 +109,8 @@ type meta struct {
 }
 
 // awaitMeta waits until the tool answers as itself, at the pinned version.
+// Another version is waited out too: during a rolling upgrade the old pods
+// answer until the new ones are ready.
 func awaitMeta(ctx context.Context, t tool, waitFor time.Duration) (meta, error) {
 	s := newSession(t.product, t.api)
 	deadline := time.Now().Add(waitFor)
@@ -119,13 +121,15 @@ func awaitMeta(ctx context.Context, t tool, waitFor time.Duration) (meta, error)
 			if !strings.EqualFold(m.Product, t.product) {
 				return m, fmt.Errorf("%s answers as %q; DYNAMO_%s_API names another tool", t.api, m.Product, strings.ToUpper(t.product))
 			}
-			if t.version != "" && m.Build.Version != t.version {
-				return m, fmt.Errorf("%s runs %s, but versions.yaml pins %s; pull the pinned image or change the pin", displayName[t.product], m.Build.Version, t.version)
+			if t.version == "" || m.Build.Version == t.version {
+				slog.Info("answering", "tool", t.product, "version", m.Build.Version)
+				return m, nil
 			}
-			slog.Info("answering", "tool", t.product, "version", m.Build.Version)
-			return m, nil
-		}
-		if time.Now().After(deadline) {
+			err = fmt.Errorf("%s still runs %s, but versions.yaml pins %s; pull the pinned image or change the pin", displayName[t.product], m.Build.Version, t.version)
+			if time.Now().After(deadline) {
+				return m, err
+			}
+		} else if time.Now().After(deadline) {
 			return meta{}, fmt.Errorf("%s did not answer GET /api/v1/meta within %s: %w", displayName[t.product], waitFor, err)
 		}
 		select {
