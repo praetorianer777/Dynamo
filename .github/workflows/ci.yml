@@ -63,6 +63,32 @@ jobs:
         run: scripts/free-runner-disk.sh && scripts/images-from-source.sh
       - run: ./run-tests.sh test-server
 
+  # An installation of versions-upgrade-from.yaml, with people and content,
+  # upgraded to the pins as an operator would; the pinned images come from
+  # source as in the stack job, the previous ones are always released.
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - id: pins
+        run: |
+          missing=""
+          for image in $(make -s compose-config ARGS=--images | grep -v '^dynamo-connect' | sort -u); do
+            docker manifest inspect "$image" >/dev/null 2>&1 || missing="$missing $image"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice title=Upgraded to the tools' main branches::These pinned images are not published yet, so they were built from source:$missing"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Two combinations of images do not fit beside each other otherwise.
+      - run: scripts/free-runner-disk.sh
+      - if: steps.pins.outputs.available == 'false'
+        run: scripts/images-from-source.sh
+      - run: ./run-tests.sh test-upgrade
+
   chart:
     runs-on: ubuntu-latest
     timeout-minutes: 120
