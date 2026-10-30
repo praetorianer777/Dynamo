@@ -91,11 +91,16 @@ Pull the repository, then set the new versions in `.env` from
 `DYNAMO_CONNECT_IMAGE`. Then:
 
 ```sh
-./compose-secrets.sh && docker compose up -d
+./compose-secrets.sh
+docker compose up -d armature-api armature-worker armature-web armature-render
+docker compose up -d
 ```
 
-The script adds any secret a newer `.env.example` asks for. Compose recreates
-what changed, the tools migrate, and connect runs again.
+The script adds any secret a newer `.env.example` asks for. Armature goes
+first, as `docs/compatibility.md` asks of an upgrade across suite releases;
+then Compose recreates the rest of what changed, the tools migrate, and
+connect runs again. `make test-upgrade` tests this upgrade from the previous
+combination (README, "Testing an upgrade").
 
 ## Backup
 

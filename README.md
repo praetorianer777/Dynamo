@@ -170,3 +170,48 @@ make sample-data SOURCES='[{"repo": "owner/tool", "docs": {"url": "https://docs.
 Issues and requirements carry their GitHub number as `(#N)` in their titles
 and pages link to their source, by which a rerun finds them, so it changes
 nothing that is there already.
+
+## Testing an upgrade
+
+`make test-upgrade`, the layer `test-upgrade` of `./run-tests.sh` and a CI
+job of its own, upgrades a running installation from the combination
+`versions-upgrade-from.yaml` names to the pins of `versions.yaml`, and proves
+that it keeps its data and its people's access:
+
+1. It starts the previous combination from its released images, under a
+   Compose project of its own on the stack's ports, and dynamo-connect
+   connects it.
+2. `sample-data` imports sparkplug: an Armature project with issues, a Stator
+   space with pages and an Exciter project whose requirements are traced to
+   the issues and linked to the pages. Four people of the demo realm sign in
+   to all three through Keycloak and get different access to it, through
+   each tool's API at that version: alice administers all three, bob edits
+   the sample, carol only reads it, and dave is let in and given it by his
+   realm group `marketing` alone. The test records what each of them may do,
+   from each tool's `/access/me` and the `can` of the space, project, page
+   or requirement, and lists the sample and every link within and between
+   the tools.
+3. It moves the stack to the pins as `docs/deploying-compose.md` upgrades,
+   Armature first: Compose pulls the new images and recreates what changed,
+   and each tool migrates as in production.
+4. It checks that dynamo-connect finds nothing to change; that the sample and
+   every link are still there; that Exciter still finds each traced issue in
+   Armature and each linked page in Stator, and Stator each page Armature's
+   issues link to; that each person signs in to all three through the realm
+   and may do exactly what they could before, comparing only what both
+   versions report; and the stack checks of `make test-signin`.
+
+Both runs of dynamo-connect are this checkout's, since no release of Dynamo
+pinned the previous combination. The release notes name the combination the
+upgrade was tested from. The chart is not upgraded from it yet: no released
+chart of Dynamo pins it, and the tools publish no charts of their 0.2
+versions to install it from.
+
+After each release of Dynamo, set `versions-upgrade-from.yaml` to the
+`versions.yaml` of that release, by pull request, so the next release is
+tested as an upgrade from it. The seed in `connect/upgrade_stack_test.go`
+gives access through the previous versions' API, so check its calls against
+each tool's `api/openapi.json` at those tags (`gh api
+repos/<owner>/<tool>/contents/api/openapi.json?ref=v<version>`) and move them
+to what those versions offer; the checks after the upgrade change only where
+a tool stops reporting something it reported before.
