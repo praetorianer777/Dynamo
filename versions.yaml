@@ -4,7 +4,7 @@
 # them. Below them, the one Kroki that draws diagrams for all three, at
 # Stator's pin; tests/test-compose.sh and tests/test-chart.sh hold the stack
 # and the chart to it.
-stator: 0.2.1
+stator: 0.3.0
 armature: 0.3.0
 exciter: 0.2.0
 kroki: 0.34.0
