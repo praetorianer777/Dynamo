@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LAYERS=(shell check-format check-go test-stack test-server test-upgrade test-chart)
+LAYERS=(shell check-format check-go test-stack test-server test-upgrade test-chart test-chart-upgrade)
 
 if [[ "${1:-}" == --list ]]; then
   printf '%s\n' "${LAYERS[@]}"
@@ -63,4 +63,5 @@ fi
 wanted test-server && run_layer test-server make --no-print-directory test-server
 wanted test-upgrade && run_layer test-upgrade make --no-print-directory test-upgrade
 wanted test-chart && run_layer test-chart make --no-print-directory test-chart
+wanted test-chart-upgrade && run_layer test-chart-upgrade make --no-print-directory test-chart-upgrade
 exit 0

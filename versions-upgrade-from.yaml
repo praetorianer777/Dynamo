@@ -1,5 +1,6 @@
-# The combination make test-upgrade installs and then upgrades to the pins of
-# versions.yaml: what installations run before they take the next release.
+# The combination make test-upgrade and make test-chart-upgrade install and
+# then upgrade to the pins of versions.yaml: what installations run before
+# they take the next release.
 # After each release of Dynamo it moves to that release's versions.yaml
 # (README.md, "Testing an upgrade"), and the release notes name it.
 stator: 0.2.1

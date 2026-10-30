@@ -1,9 +1,10 @@
 //go:build stack
 
-// The two halves of make test-upgrade, which scripts/upgrade-test.sh runs on
-// either side of the upgrade: the first gives people different access to the
-// sample at the previous versions and records what they and the sample are,
-// the second holds the upgraded stack to that record. Both skip unless
+// The two halves of make test-upgrade and make test-chart-upgrade, which
+// scripts/upgrade-test.sh and scripts/chart-upgrade-test.sh run on either side
+// of the upgrade: the first gives people different access to the sample at
+// the previous versions and records what they and the sample are, the second
+// holds the upgraded stack to that record. Both skip unless
 // DYNAMO_UPGRADE_SNAPSHOT names the record's file.
 package main
 
@@ -27,7 +28,8 @@ import (
 type upgradePerson struct{ name, email, password, access string }
 
 // The people of deploy/keycloak/realm.json; scripts/upgrade-test.sh lets
-// alice, bob and carol in by DYNAMO_MEMBERS, dave comes in by his group.
+// alice, bob and carol in by DYNAMO_MEMBERS, scripts/chart-upgrade-values.yaml
+// by members, and dave comes in by his group.
 var upgradePeople = []upgradePerson{
 	{"alice", "alice@suite.test", "alice password", "an administrator of all three"},
 	{"bob", "bob@suite.test", "bob password", "a member who edits the sample"},

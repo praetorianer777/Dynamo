@@ -1,0 +1,16 @@
+# Beside scripts/chart-test-values.yaml for make test-chart-upgrade: carol is
+# let in before her first sign-in too, as scripts/upgrade-test.sh does with
+# DYNAMO_MEMBERS, so the seed of connect/upgrade_stack_test.go finds the same
+# people in the chart as in Compose.
+members: &members
+  - { email: alice@suite.test, role: admin }
+  - { email: bob@suite.test, role: member }
+  - { email: carol@suite.test, role: member }
+
+stator:
+  bootstrap:
+    members: *members
+
+exciter:
+  bootstrap:
+    members: *members
