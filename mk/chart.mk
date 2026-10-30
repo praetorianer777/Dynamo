@@ -15,6 +15,16 @@ test-chart: ## Install the umbrella chart into kind and check the three come up 
 		-e DYNAMO_CLUSTER=$(DYNAMO_CLUSTER) -e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_FROM_RELEASE -e DYNAMO_EXISTING_SECRETS -e DYNAMO_KEEP_CLUSTER \
 		-e DYNAMO_STATOR_SOURCE -e DYNAMO_ARMATURE_SOURCE -e DYNAMO_EXCITER_SOURCE $(KIND_TOOLS_IMAGE) /work/scripts/chart-test.sh
 
+# The upgrade from the combination versions-upgrade-from.yaml names, in a
+# cluster of its own beside make test-chart's.
+.PHONY: test-chart-upgrade
+test-chart-upgrade: ## Install the previous combination's charts into kind, give people access, helm upgrade to this chart and check nothing was lost
+	docker build -q -t $(CONNECT_IMAGE) $(ROOT)/connect >/dev/null
+	docker build -q -t $(KIND_TOOLS_IMAGE) $(ROOT)/scripts/kind >/dev/null
+	docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock -v $(ROOT):/work:ro \
+		-e DYNAMO_CLUSTER=$(DYNAMO_CLUSTER)-upgrade -e DYNAMO_CHARTS_FROM_SOURCE -e DYNAMO_KEEP_CLUSTER \
+		-e DYNAMO_STATOR_SOURCE -e DYNAMO_ARMATURE_SOURCE -e DYNAMO_EXCITER_SOURCE $(KIND_TOOLS_IMAGE) /work/scripts/chart-upgrade-test.sh
+
 # The cluster make test-chart uses, for tests/test-chart.sh.
 .PHONY: chart-cluster
 chart-cluster:

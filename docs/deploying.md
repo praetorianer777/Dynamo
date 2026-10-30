@@ -120,7 +120,9 @@ the connect Job again, which changes only what is missing. A client secret
 changed in `oidc.clients` or in `oidc.existingSecret` reaches the tools on
 that run: the Job remembers what it sent them in the volume
 `<release>-connect` (`connect.storage`), since a tool never answers which
-secret it holds. Run `helm test` again afterwards.
+secret it holds. Run `helm test` again afterwards. `make test-chart-upgrade`
+tests this upgrade from the previous combination (README, "Testing an
+upgrade").
 
 ## Before you install: the same install in kind
 

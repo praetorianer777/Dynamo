@@ -201,11 +201,27 @@ that it keeps its data and its people's access:
    and may do exactly what they could before, comparing only what both
    versions report; and the stack checks of `make test-signin`.
 
-Both runs of dynamo-connect are this checkout's, since no release of Dynamo
-pinned the previous combination. The release notes name the combination the
-upgrade was tested from. The chart is not upgraded from it yet: no released
-chart of Dynamo pins it, and the tools publish no charts of their 0.2
-versions to install it from.
+`make test-chart-upgrade`, the layer `test-chart-upgrade` and a CI job of its
+own, does the same on Kubernetes, in a kind cluster of its own:
+
+1. The tools published no charts of the previous combination, so it packages
+   each tool's chart at its tag (`deploy/charts/<tool>` at `v<version>`) and
+   installs the umbrella chart of this checkout with them instead of the
+   pinned ones, and with those versions' released images. Its Jobs connect
+   the three and import sparkplug, as on any install.
+2. A pod in the cluster, made from the one `helm test` runs, seeds the same
+   four people through the same code and keeps the record.
+3. `helm upgrade` to the chart of this checkout, so to the pins, as an
+   operator upgrades: each tool's migration Job runs as its pre-upgrade hook,
+   and a migration that fails fails the upgrade and the test. The test then
+   checks that each tool's migration Job ran again, at the upgraded version.
+4. The connect and sample-data Jobs, run again by the upgrade, must find
+   nothing to change; the pod holds the upgraded suite to the record, and
+   `helm test` runs the stack checks.
+
+Both upgrade tests run this checkout's dynamo-connect, since no release of
+Dynamo pinned the previous combination. The release notes name the
+combination the upgrade was tested from.
 
 After each release of Dynamo, set `versions-upgrade-from.yaml` to the
 `versions.yaml` of that release, by pull request, so the next release is
