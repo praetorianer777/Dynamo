@@ -6,6 +6,10 @@ across all three pass. The rules below are what lets a tool release on its own
 without breaking the other two; each tool follows them in its API, its webhooks
 and its release.
 
+What people see of the three in common is in [administration.md](administration.md),
+the sign-in page, the settings and how access is granted, and in
+[look-and-feel.md](look-and-feel.md), the shell, the kit and the patterns.
+
 ## APIs and webhooks change additively
 
 - A new endpoint, a new optional request field, a new response field, a new
