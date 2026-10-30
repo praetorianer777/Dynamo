@@ -26,10 +26,10 @@ space and access are in [administration.md](administration.md).
 
 ## The shell
 
-- **The rail:** 48 px. The same icon stands for the same place in every tool:
-  projects are a folder.
-- **The narrow strip:** 48 px, holding the menu button, the installation's
-  name and the bell.
+- **The rail:** `w-12`, 42 px at the kit's 14 px root type. The same icon
+  stands for the same place in every tool: projects are a folder.
+- **The narrow strip:** `h-12`, as tall as the rail is wide, holding the menu
+  button, the installation's name and the bell.
 - **The sidebar:** 232 px, a drawer below 768 px. Its head is the tool's mark
   and the installation's name. The build stamp is the shared `BuildStamp`.
 - **The account menu:**
