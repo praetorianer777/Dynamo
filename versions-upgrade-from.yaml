@@ -1,0 +1,7 @@
+# The combination make test-upgrade installs and then upgrades to the pins of
+# versions.yaml: what installations run before they take the next release.
+# After each release of Dynamo it moves to that release's versions.yaml
+# (README.md, "Testing an upgrade"), and the release notes name it.
+stator: 0.2.1
+armature: 0.2.0
+exciter: 0.2.0
