@@ -81,7 +81,7 @@ jobs:
             echo
             sed 's/^/- /' versions.yaml | grep -v '^- #'
             echo
-            echo "Tested as an upgrade of a running installation from:"
+            echo "Tested as an upgrade of a running installation, with Docker Compose and with helm upgrade, from:"
             echo
             sed 's/^/- /' versions-upgrade-from.yaml | grep -v '^- #'
             echo
