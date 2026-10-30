@@ -120,7 +120,7 @@ helm template "$RELEASE" "$WORK/to" -n "$NS" "${VALUES[@]}" --show-only template
   | jq --arg name "$CHECK" '
       .metadata.name = $name
       | .metadata.labels["app.kubernetes.io/name"] = $name
-      | del(.metadata.annotations)
+      | del(.metadata.annotations, .metadata.namespace)
       | .spec.volumes = [{name: "record", emptyDir: {}}]
       | .spec.containers[0].command = ["sleep", "86400"]
       | .spec.containers[0].env += [{name: "DYNAMO_UPGRADE_SNAPSHOT", value: "/record/before.json"}]
