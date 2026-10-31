@@ -59,12 +59,11 @@ func TestUpgradeSeedsThePreviousVersions(t *testing.T) {
 	ctx := context.Background()
 	admins := upgradeAdmins(t, ctx, env)
 
-	// Before dave's first sign-in: Stator and Exciter let a mapped group's
-	// people in then, Armature only somebody it knows by address.
+	// Before dave's first sign-in: Stator and Exciter let somebody new in
+	// then whose provider group already holds a grant, Armature only
+	// somebody it knows by address.
 	for _, product := range []string{"stator", "exciter"} {
-		if err := admins[product].send(ctx, http.MethodPost, "/oidc-provider/group-roles", map[string]string{"group": upgradeGroup, "role": "member"}, nil); err != nil {
-			t.Fatalf("let the realm group %s into %s: %v", upgradeGroup, displayName[product], err)
-		}
+		letGroupIn(t, ctx, admins[product])
 	}
 	dave := upgradePeople[3]
 	err := admins["armature"].send(ctx, http.MethodPost, "/users", map[string]string{"email": dave.email, "name": dave.name, "role": "member", "password": randomPassword()}, nil)
@@ -75,8 +74,9 @@ func TestUpgradeSeedsThePreviousVersions(t *testing.T) {
 	// Signing in makes each person's account and the realm's groups in each tool.
 	browsers := signInEveryone(t, env)
 
-	grantStator(t, ctx, admins["stator"])
-	grantExciter(t, ctx, admins["exciter"])
+	for _, product := range []string{"stator", "exciter"} {
+		grantPeople(t, ctx, admins[product])
+	}
 	grantArmature(t, ctx, admins["armature"])
 
 	content, refs := collectContent(t, ctx, admins)
@@ -220,9 +220,107 @@ func armaturePermissions(t *testing.T, ctx context.Context, s *session) []string
 	return out
 }
 
-// peopleIDs answers the ids a tool gave bob, carol and the group, from its
-// lists of members and groups in Stator's and Exciter's 0.2 form.
-func peopleIDs(t *testing.T, ctx context.Context, s *session) (bob, carol, group string) {
+// sampleRoles is how Stator or Exciter names the sample in a grant and in
+// the list of its grants, and the role each of the seed's subjects holds there.
+type sampleRoles struct {
+	field, filter     string
+	bob, carol, group string
+}
+
+// upgradeRoles: bob edits, carol reads, the realm group reads and comments,
+// and Everyone reads, in Stator's space and Exciter's project.
+var upgradeRoles = map[string]sampleRoles{
+	"stator":  {"spaceKey", "space", "editor", "viewer", "commenter"},
+	"exciter": {"projectKey", "project", "editor", "viewer", "reviewer"},
+}
+
+// letGroupIn makes the realm group's people members at their first sign-in,
+// through a group carrying its claim that holds its role in the sample.
+func letGroupIn(t *testing.T, ctx context.Context, s *session) {
+	t.Helper()
+	var current struct {
+		Provider *struct {
+			Issuer       string `json:"issuer"`
+			ClientID     string `json:"clientId"`
+			GroupsClaim  string `json:"groupsClaim"`
+			Scopes       string `json:"scopes"`
+			CreateGroups bool   `json:"createGroups"`
+			Enabled      bool   `json:"enabled"`
+		} `json:"provider"`
+	}
+	if err := s.send(ctx, http.MethodGet, "/oidc-provider", nil, &current); err != nil {
+		t.Fatal(err)
+	}
+	p := current.Provider
+	if p == nil {
+		t.Fatalf("%s has no identity provider; dynamo-connect points it at the realm before this runs", displayName[s.product])
+	}
+	// The client secret, left out, stays the one dynamo-connect set.
+	body := map[string]any{
+		"issuer": p.Issuer, "clientId": p.ClientID, "groupsClaim": p.GroupsClaim, "scopes": p.Scopes,
+		"createGroups": p.CreateGroups, "enabled": p.Enabled, "admitByGroup": true,
+	}
+	if err := s.send(ctx, http.MethodPut, "/oidc-provider", body, nil); err != nil {
+		t.Fatalf("let %s admit somebody new by their group: %v", displayName[s.product], err)
+	}
+	group := findGroup(t, ctx, s, "/groups?q="+upgradeGroup, func(g toolGroup) bool { return g.Name == upgradeGroup })
+	if group == "" {
+		var made struct {
+			Group toolGroup `json:"group"`
+		}
+		if err := s.send(ctx, http.MethodPost, "/groups", map[string]string{"name": upgradeGroup, "externalRef": upgradeGroup}, &made); err != nil {
+			t.Fatalf("make %s's group for the realm group %s: %v", displayName[s.product], upgradeGroup, err)
+		}
+		group = made.Group.ID
+	}
+	grantSample(t, ctx, s, upgradeRoles[s.product].group, nil, group)
+}
+
+// grantPeople gives bob and carol their roles in the sample, and Everyone
+// reading it instead of the editing the tool gave every member when it was made.
+func grantPeople(t *testing.T, ctx context.Context, s *session) {
+	t.Helper()
+	roles := upgradeRoles[s.product]
+	bob, carol := memberIDs(t, ctx, s)
+	grantSample(t, ctx, s, roles.bob, bob, nil)
+	grantSample(t, ctx, s, roles.carol, carol, nil)
+	everyone := findGroup(t, ctx, s, "/groups?limit=50", func(g toolGroup) bool { return g.Builtin == "everyone" })
+	if everyone == "" {
+		t.Fatalf("%s lists no group Everyone, which it keeps itself", displayName[s.product])
+	}
+	grantSample(t, ctx, s, "viewer", nil, everyone)
+	var held struct {
+		Assignments []struct {
+			ID           string `json:"id"`
+			Role         string `json:"role"`
+			GroupBuiltin string `json:"groupBuiltin"`
+		} `json:"assignments"`
+	}
+	if err := s.send(ctx, http.MethodGet, "/role-assignments?"+roles.filter+"="+upgradeProject+"&limit=200", nil, &held); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range held.Assignments {
+		if a.GroupBuiltin != "everyone" || a.Role == "viewer" {
+			continue
+		}
+		if err := s.send(ctx, http.MethodDelete, "/role-assignments/"+a.ID, nil, nil); err != nil {
+			t.Fatalf("take %s from Everyone in %s's %s: %v", a.Role, displayName[s.product], upgradeProject, err)
+		}
+	}
+}
+
+// grantSample grants a role in the sample to a person or a group, which may
+// hold it already.
+func grantSample(t *testing.T, ctx context.Context, s *session, role string, user, group any) {
+	t.Helper()
+	body := map[string]any{upgradeRoles[s.product].field: upgradeProject, "role": role, "userId": user, "groupId": group}
+	if err := s.send(ctx, http.MethodPost, "/role-assignments", body, nil); err != nil && !hasStatus(err, http.StatusConflict) {
+		t.Fatalf("grant %s in %s's %s: %v", role, displayName[s.product], upgradeProject, err)
+	}
+}
+
+// memberIDs answers the ids Stator or Exciter gave bob and carol.
+func memberIDs(t *testing.T, ctx context.Context, s *session) (bob, carol string) {
 	t.Helper()
 	var members struct {
 		Members []struct {
@@ -241,136 +339,43 @@ func peopleIDs(t *testing.T, ctx context.Context, s *session) (bob, carol, group
 			carol = m.UserID
 		}
 	}
-	group = groupID(t, ctx, s, "/groups?q="+upgradeGroup)
 	if bob == "" || carol == "" {
 		t.Fatalf("%s lists no account for bob or carol after they signed in", displayName[s.product])
 	}
-	return bob, carol, group
+	return bob, carol
 }
 
-func groupID(t *testing.T, ctx context.Context, s *session, path string) string {
+type toolGroup struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Builtin string `json:"builtin"`
+}
+
+// findGroup answers the id of the first group the list at path holds that
+// is, or "" when there is none.
+func findGroup(t *testing.T, ctx context.Context, s *session, path string, is func(toolGroup) bool) string {
 	t.Helper()
 	var groups struct {
-		Groups []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"groups"`
+		Groups []toolGroup `json:"groups"`
 	}
 	if err := s.send(ctx, http.MethodGet, path, nil, &groups); err != nil {
 		t.Fatal(err)
 	}
 	for _, g := range groups.Groups {
-		if g.Name == upgradeGroup {
+		if is(g) {
 			return g.ID
 		}
 	}
-	t.Fatalf("%s has no group %s after dave signed in; it makes the realm's groups at sign-in when createGroups is on", displayName[s.product], upgradeGroup)
 	return ""
 }
 
-func ownID(t *testing.T, ctx context.Context, s *session) string {
+func groupID(t *testing.T, ctx context.Context, s *session, path string) string {
 	t.Helper()
-	var me struct {
-		User struct {
-			ID string `json:"id"`
-		} `json:"user"`
+	id := findGroup(t, ctx, s, path, func(g toolGroup) bool { return g.Name == upgradeGroup })
+	if id == "" {
+		t.Fatalf("%s has no group %s after dave signed in; it makes the realm's groups at sign-in when createGroups is on", displayName[s.product], upgradeGroup)
 	}
-	if err := s.send(ctx, http.MethodGet, "/auth/me", nil, &me); err != nil {
-		t.Fatal(err)
-	}
-	return me.User.ID
-}
-
-type subjectRef struct {
-	Type string `json:"type"`
-	ID   string `json:"id,omitempty"`
-}
-
-// grantStator replaces the space's table, as Stator 0.2 keeps it: bob edits,
-// carol reads, the group reads and comments, and nobody else but the space's
-// administrators sees it.
-func grantStator(t *testing.T, ctx context.Context, s *session) {
-	t.Helper()
-	bob, carol, group := peopleIDs(t, ctx, s)
-	path := "/spaces/" + upgradeProject + "/permissions"
-	var current struct {
-		Grants []struct {
-			Subject struct {
-				Type string  `json:"type"`
-				ID   *string `json:"id"`
-			} `json:"subject"`
-			Permissions []string `json:"permissions"`
-		} `json:"grants"`
-	}
-	if err := s.send(ctx, http.MethodGet, path, nil, &current); err != nil {
-		t.Fatal(err)
-	}
-	type grant struct {
-		Subject     subjectRef `json:"subject"`
-		Permissions []string   `json:"permissions"`
-	}
-	var grants []grant
-	administered := false
-	for _, g := range current.Grants {
-		if g.Subject.Type == "everyone" || g.Subject.ID == nil || slices.Contains([]string{bob, carol, group}, *g.Subject.ID) {
-			continue
-		}
-		grants = append(grants, grant{subjectRef{g.Subject.Type, *g.Subject.ID}, g.Permissions})
-		administered = administered || slices.Contains(g.Permissions, "administer")
-	}
-	if !administered {
-		grants = append(grants, grant{subjectRef{"user", ownID(t, ctx, s)}, []string{"view", "addPages", "addComments", "delete", "administer"}})
-	}
-	grants = append(grants,
-		grant{subjectRef{"user", bob}, []string{"view", "addPages", "addComments"}},
-		grant{subjectRef{"user", carol}, []string{"view"}},
-		grant{subjectRef{"group", group}, []string{"view", "addComments"}})
-	if err := s.send(ctx, http.MethodPut, path, map[string]any{"grants": grants}, nil); err != nil {
-		t.Fatalf("give the people their access to Stator's space %s: %v", upgradeProject, err)
-	}
-}
-
-// grantExciter replaces the project's table, as Exciter 0.2 keeps it: bob
-// edits, carol views, the group reviews.
-func grantExciter(t *testing.T, ctx context.Context, s *session) {
-	t.Helper()
-	bob, carol, group := peopleIDs(t, ctx, s)
-	path := "/projects/" + upgradeProject + "/grants"
-	var current struct {
-		Grants []struct {
-			Role    string `json:"role"`
-			Subject struct {
-				Type string  `json:"type"`
-				ID   *string `json:"id"`
-			} `json:"subject"`
-		} `json:"grants"`
-	}
-	if err := s.send(ctx, http.MethodGet, path, nil, &current); err != nil {
-		t.Fatal(err)
-	}
-	type grant struct {
-		Role    string     `json:"role"`
-		Subject subjectRef `json:"subject"`
-	}
-	var grants []grant
-	administered := false
-	for _, g := range current.Grants {
-		if g.Subject.Type == "everyone" || g.Subject.ID == nil || slices.Contains([]string{bob, carol, group}, *g.Subject.ID) {
-			continue
-		}
-		grants = append(grants, grant{g.Role, subjectRef{g.Subject.Type, *g.Subject.ID}})
-		administered = administered || g.Role == "admin"
-	}
-	if !administered {
-		grants = append(grants, grant{"admin", subjectRef{"user", ownID(t, ctx, s)}})
-	}
-	grants = append(grants,
-		grant{"editor", subjectRef{"user", bob}},
-		grant{"viewer", subjectRef{"user", carol}},
-		grant{"reviewer", subjectRef{"group", group}})
-	if err := s.send(ctx, http.MethodPut, path, map[string]any{"grants": grants}, nil); err != nil {
-		t.Fatalf("give the people their access to Exciter's project %s: %v", upgradeProject, err)
-	}
+	return id
 }
 
 // grantArmature grants Armature's roles in the project: bob is a user, carol
