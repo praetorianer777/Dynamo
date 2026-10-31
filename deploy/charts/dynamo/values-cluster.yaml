@@ -33,6 +33,15 @@ objectStore:
   secretKey: CHANGE-ME
   storage: 50Gi
 
+# OpenBao, for Rotor once it joins the chart; turn it on to have it ready.
+# It takes no secret as a value: make the Secret with
+# scripts/create-secrets.sh, and back its unseal-key up with the volume,
+# since OpenBao's data opens with that key alone.
+openbao:
+  enabled: false
+  existingSecret: dynamo-openbao
+  storage: 5Gi
+
 # Without demo users, helm test signs in as this account of the realm, with
 # the password from the Secret's key password; leave email empty to check the
 # webhooks only.

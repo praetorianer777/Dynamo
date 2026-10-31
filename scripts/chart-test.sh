@@ -3,8 +3,8 @@
 # checks that the three tools come up connected: the connect Job ran, helm
 # test finds one sign-in through the realm opens all three and every webhook
 # delivers, the sample project is in all three, the suite's one Kroki is in
-# secure mode and reaches nothing, and an upgrade runs the Jobs again without
-# anything left to change.
+# secure mode and reaches nothing, OpenBao is ready for Rotor and survives a
+# restart, and an upgrade runs the Jobs again without anything left to change.
 #
 # Runs in the image from scripts/kind/Dockerfile (make test-chart), with the
 # repository at /work, the host's Docker socket and the host's network. A
@@ -24,6 +24,8 @@ WORK=$(mktemp -d)
 export KUBECONFIG="$WORK/kubeconfig"
 # shellcheck source=scripts/chart-lib.sh
 source "$(dirname "$0")/chart-lib.sh"
+# shellcheck source=scripts/chart-openbao.sh
+source "$(dirname "$0")/chart-openbao.sh"
 
 cleanup() {
   local rc=$?
@@ -78,6 +80,8 @@ if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
   mk test-keycloak-admin username=admin "password=$(gen)"
   mk test-armature-owner username=owner@armature.dynamo "password=$(gen)"
   mk test-s3 s3-access-key=dynamo "s3-secret-key=$(gen)"
+  # The static seal takes exactly 32 bytes, here as 64 hex digits.
+  mk test-openbao "unseal-key=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" "admin-token=$(gen)"
   VALUES+=(-f /work/scripts/chart-test-existing-secrets.yaml)
   echo "   made every secret beforehand"
 fi
@@ -152,6 +156,15 @@ else
   echo "   a pod that is no tool's api cannot reach Kroki"
 fi
 
+say "OpenBao, ready for Rotor"
+openbao=
+if [[ -n "${DYNAMO_FROM_RELEASE:-}" ]] && ! kubectl -n "$NS" get deploy openbao >/dev/null 2>&1; then
+  echo "   this release runs no OpenBao"
+else
+  check_openbao
+  openbao=1
+fi
+
 if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
   say "no secret in the release"
   rendered=$(helm get manifest "$RELEASE" -n "$NS"; helm get hooks "$RELEASE" -n "$NS"; helm get values "$RELEASE" -n "$NS" -a)
@@ -185,5 +198,7 @@ if [[ -n "$sample" ]]; then
     exit 1
   fi
 fi
+
+[[ -z "$openbao" ]] || check_openbao_upgraded
 
 say "the chart installs all three connected"

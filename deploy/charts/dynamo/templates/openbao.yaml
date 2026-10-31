@@ -1,0 +1,158 @@
+{{- if .Values.openbao.enabled }}
+{{- $o := .Values.openbao }}
+{{- $secret := include "dynamo.openbaoSecret" . }}
+{{- $name := "openbao" }}
+{{- $config := tpl (.Files.Get "files/openbao.hcl") . }}
+{{- if not $o.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+  annotations:
+    # OpenBao's data outlives an uninstall and opens with this key alone, so the
+    # key must outlive it too.
+    helm.sh/resource-policy: keep
+stringData:
+  unseal-key: {{ include "dynamo.password" (dict "root" . "secret" $secret "key" "unseal-key" "value" (randBytes 32)) | quote }}
+  admin-token: {{ include "dynamo.password" (dict "root" . "secret" $secret "key" "admin-token" "value" "") | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-openbao
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+data:
+  config.hcl: |
+    {{- $config | nindent 4 }}
+---
+# Kubernetes auth reviews the tokens it is shown with OpenBao's own.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s-openbao-auth-delegator" .Release.Namespace .Release.Name }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-openbao
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+  annotations:
+    # The secrets outlive an uninstall, as the tools' databases do.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with $o.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $o.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+    app.kubernetes.io/name: openbao
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ $config | sha256sum | trunc 16 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      # The image's own user and group, openbao, by number.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: openbao
+          image: {{ $o.image }}
+          # The image's entrypoint changes owners as root; the volume's group does that here.
+          command: ["bao", "server", "-config=/openbao/config/config.hcl"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            # For bao run in the pod: the server itself, and a writable home.
+            - { name: BAO_ADDR, value: "http://127.0.0.1:8200" }
+            - { name: HOME, value: /tmp }
+            - name: DYNAMO_OPENBAO_UNSEAL_KEY
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: unseal-key } }
+            - name: DYNAMO_OPENBAO_ADMIN_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: admin-token } }
+          ports:
+            - { name: http, containerPort: 8200 }
+          # Ready once initialized and unsealed; alive while it answers at all.
+          readinessProbe:
+            httpGet: { path: /v1/sys/health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: "/v1/sys/health?sealedcode=200&uninitcode=200", port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - { name: config, mountPath: /openbao/config, readOnly: true }
+            - { name: data, mountPath: /openbao/data }
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml $o.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-openbao
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openbao
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "dynamo.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: http, port: 8200, targetPort: http }
+{{- end }}

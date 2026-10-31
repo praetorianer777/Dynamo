@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Makes the Secrets the umbrella chart can read instead of values: the OIDC
-# clients' secrets, Keycloak's and Armature's administrators, and the S3 keys.
+# clients' secrets, Keycloak's and Armature's administrators, the S3 keys, and
+# OpenBao's unseal key and admin token.
 # Asks for each value; Enter generates a random one. Prints the values that
 # name the Secrets for the chart.
 #
@@ -60,11 +61,23 @@ kc_pass=$(ask_secret "  password")
 echo "== Armature's owner" >&2
 ar_user=$(ask "  email" admin@armature.dynamo)
 ar_pass=$(ask_secret "  password")
+echo "== OpenBao, for Rotor" >&2
+# OpenBao takes the admin token as a token's id, which may not hold a dot.
+ob_token=$(ask_secret "  admin token")
+[[ "$ob_token" =~ ^[A-Za-z0-9_-]{16,}$ ]] \
+  || { echo "OpenBao's admin token must be at least 16 letters, digits, - or _; press Enter for a generated one." >&2; exit 1; }
 
 (( PRINT )) || kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null
 secret dynamo-oidc-clients "${oidc[@]}"
 secret dynamo-keycloak-admin-login "username=$kc_user" "password=$kc_pass"
 secret dynamo-armature-owner "username=$ar_user" "password=$ar_pass"
+# A new unseal key would lock OpenBao's data away, so an existing one stays.
+if (( ! PRINT )) && kubectl get secret dynamo-openbao -n "$NS" >/dev/null 2>&1; then
+  echo "kept $NS/dynamo-openbao: OpenBao's data opens with its unseal key alone" >&2
+else
+  secret dynamo-openbao "unseal-key=$(openssl rand -hex 32)" "admin-token=$ob_token"
+  echo "back up the unseal key in $NS/dynamo-openbao with OpenBao's volume: its data opens with that key alone" >&2
+fi
 
 if (( OWN_S3 )); then
   for t in stator armature exciter; do
@@ -84,6 +97,7 @@ fi
   echo "oidc: { existingSecret: dynamo-oidc-clients }"
   echo "keycloak: { admin: { existingSecret: dynamo-keycloak-admin-login } }"
   echo "armatureAdmin: { existingSecret: dynamo-armature-owner }"
+  echo "openbao: { existingSecret: dynamo-openbao }"
   if (( OWN_S3 )); then
     echo "objectStore: { enabled: false }"
     for t in stator armature exciter; do

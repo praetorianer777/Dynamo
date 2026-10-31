@@ -51,6 +51,10 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- .Values.objectStore.existingSecret | default (printf "%s-object-store" .Release.Name) -}}
 {{- end -}}
 
+{{- define "dynamo.openbaoSecret" -}}
+{{- .Values.openbao.existingSecret | default (printf "%s-openbao" .Release.Name) -}}
+{{- end -}}
+
 {{/* The Secret holding a tool's administrator, which the connect Job and helm test sign in with. */}}
 {{- define "dynamo.adminSecret" -}}
 {{- if eq .tool "armature" -}}{{- include "dynamo.armatureAdminSecret" .root -}}

@@ -3,6 +3,9 @@
 # the very addresses a browser does. Plain http, so no secure cookies.
 sampleData: { enabled: true, sources: [sparkplug] }
 
+# Off by default until Rotor joins the chart; on here so it is tested.
+openbao: { enabled: true }
+
 keycloak:
   resources:
     requests: { cpu: 50m, memory: 512Mi }

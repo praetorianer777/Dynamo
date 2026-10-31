@@ -1,0 +1,48 @@
+# Rotor's openbao.configure Job as its chart makes it, for scripts/chart-openbao.sh
+# until Rotor joins the umbrella chart (#101): Rotor's init.sh against the
+# suite's OpenBao, with the admin token from the Secret. The script fills in
+# @IMAGE@ and @SECRET@.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rotor-openbao
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 240
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: openbao
+          image: "@IMAGE@"
+          command: ["/bin/sh", "/rotor/init.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          env:
+            - { name: HOME, value: /tmp }
+            - { name: BAO_ADDR, value: "http://openbao:8200" }
+            - name: BAO_TOKEN
+              valueFrom: { secretKeyRef: { name: "@SECRET@", key: admin-token } }
+            - { name: ROTOR_POLICY_DIR, value: /rotor }
+            - { name: ROTOR_RUNNER_HOST, value: rotor-api }
+            - { name: ROTOR_KUBERNETES_HOST, value: "https://kubernetes.default.svc" }
+            - { name: ROTOR_CONTROL_PLANE_SERVICE_ACCOUNTS, value: "rotor-api,rotor-worker" }
+            - { name: ROTOR_CONTROL_PLANE_NAMESPACE, value: dynamo }
+            - { name: ROTOR_OPENBAO_REQUIRE_AUDIT, value: "true" }
+          volumeMounts:
+            - { name: script, mountPath: /rotor, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: script
+          configMap:
+            name: rotor-openbao
+        - name: tmp
+          emptyDir: {}
