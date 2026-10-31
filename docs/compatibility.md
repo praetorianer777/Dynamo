@@ -48,7 +48,7 @@ Each tool answers the same unauthenticated endpoint:
 ```
 GET /api/v1/meta
 {
-  "product": "stator" | "armature" | "exciter",
+  "product": "stator" | "armature" | "exciter" | "rotor",
   "build": { "version": "1.3.0", "commit": "abc1234", "builtAt": "2026-10-14T09:00:00Z" },
   "apiVersion": "1",
   "capabilities": ["remote-links@1", "webhooks@1"]
@@ -114,13 +114,27 @@ account.
 | `requirement-list@1` | A project's requirements narrowed and ordered by a query, a window at a time, and what may come next at the caret of such a query: `GET /projects/{projectKey}/requirements`, `GET /projects/{projectKey}/requirements/suggest`. | none yet |
 | `trace-links@1` | The trace links between requirements: listed from either end, made with a link type, and taken off: `GET /link-types`, `GET` and `POST /requirements/{reqKey}/links`, `DELETE /links/{linkID}`. | none yet |
 | `specifications@1` | The projects a caller may read, and each one's requirements as the outline of its specification: `GET /projects`, `GET /projects/{projectKey}`, `GET /projects/{projectKey}/tree`. | none yet |
-| `mcp@1` | An assistant works with requirements over MCP 2025-11-25 or 2025-06-18 as the person whose token it holds: `POST /mcp`. | assistants |
+
+### Offered by Rotor
+
+Rotor runs workflows against the other tools as the person who started them.
+It is not one of the three tools Dynamo pins, and it reports its capabilities
+at `GET /api/v1/meta` with `"product": "rotor"` like they do.
+
+| Capability | Promises | Relied on by |
+|---|---|---|
+| `workflows@1` | Workflows defined as versioned specs: listed, read, written, compared, shared and checked before saving: `GET` and `POST /workflows`, `GET`, `PUT` and `DELETE /workflows/{workflowID}`, `GET /workflows/{workflowID}/versions`, `GET /workflows/{workflowID}/versions/{versionNumber}`, `GET /workflows/{workflowID}/diff`, `PUT /workflows/{workflowID}/sharing`, `POST /workflows/validate`. | none yet |
+| `runs@1` | A workflow started as the caller, its runs listed and read, cancelled, and its events streamed as they happen: `POST /workflows/{workflowID}/runs`, `GET /runs`, `GET /runs/{runID}`, `POST /runs/{runID}/cancel`, `GET /runs/{runID}/events`. | none yet |
+| `hooks@1` | A tool's signed webhook deliveries, envelope version 1 or CloudEvents, received for the triggers they start, with the secret kept by an administrator: `POST /hooks/{toolID}` (public, checked by the tool's timestamped signature), `GET`, `PUT` and `DELETE /tools/{toolID}/hook`. | none yet |
+
+Rotor also reports `mcp@1`, listed below.
 
 ### Offered by more than one tool
 
 | Capability | Offered by | Promises | Relied on by |
 |---|---|---|---|
-| `webhooks@1` | Armature, Stator, Exciter | Endpoints subscribed to topics, their deliveries, a redelivery, a test delivery and a new secret (`GET`, `POST /webhooks`, `PATCH`, `DELETE /webhooks/{id}`, `GET /webhooks/{id}/deliveries`, `POST /webhooks/{id}/deliveries/{deliveryID}/redeliver`, `POST /webhooks/{id}/test`, `POST /webhooks/{id}/rotate-secret`), each delivery the versioned envelope above, signed as `X-<Product>-Signature-256: sha256=<hex HMAC-SHA256 of the body>` with `X-<Product>-Event`, `X-<Product>-Delivery`, `X-<Product>-Timestamp` and `X-<Product>-Signature-Timestamped-256` over `{timestamp}.{body}`, and retried when it fails. | Stator, Exciter, Dynamo |
+| `mcp@1` | Exciter, Armature, Rotor; Stator will (praetorianer777/Stator#600) | The tool serves its own operations as MCP tools (MCP 2025-11-25 or 2025-06-18) at `POST /mcp`, behind its OAuth, so an assistant works as the person whose token it holds. Which operations those are is each tool's `tools/list`, not part of the name: Exciter's are requirements, Armature's issues, Rotor's workflows, runs and approvals (approvals are decided in Rotor's pages alone). | assistants, Rotor (of every tool it connects) |
+| `webhooks@1` | Armature, Stator, Exciter | Endpoints subscribed to topics, their deliveries, a redelivery, a test delivery and a new secret (`GET`, `POST /webhooks`, `PATCH`, `DELETE /webhooks/{id}`, `GET /webhooks/{id}/deliveries`, `POST /webhooks/{id}/deliveries/{deliveryID}/redeliver`, `POST /webhooks/{id}/test`, `POST /webhooks/{id}/rotate-secret`), each delivery the versioned envelope above, signed as `X-<Product>-Signature-256: sha256=<hex HMAC-SHA256 of the body>` with `X-<Product>-Event`, `X-<Product>-Delivery`, `X-<Product>-Timestamp` and `X-<Product>-Signature-Timestamped-256` over `{timestamp}.{body}`, and retried when it fails. | Stator, Exciter, Dynamo, Rotor (event triggers) |
 | `webhooks@2` | Exciter | What `webhooks@1` promises, and an endpoint registered for envelope version 2 is posted a CloudEvent 1.0 in structured mode whose data is version 1's payload. | receivers that speak CloudEvents |
 | `theme-export@1` | Armature, Stator, Exciter | A theme exported as one `armature-theme/1` file with its pictures and fonts, and such a file imported as a theme of the caller's own: `GET /themes/{themeID}/export`, `POST /themes/import`. | Stator, Exciter (of Armature) |
 
@@ -133,9 +147,23 @@ partner apps registered by an administrator.
 
 | Capability | Offered by | Promises | Relied on by |
 |---|---|---|---|
-| `oauth.partner-tokens@1` | Armature | Authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; the token never exceeds the person's rights and shows in their list as a connected app. | Stator |
-| `oauth.token-exchange@1` | Armature, Stator, Exciter | `POST /api/v1/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): `subject_token` is an access token of the shared Keycloak realm whose `azp` is the partner app's Keycloak client id and whose `aud` holds the offering tool's client; the app authenticates with its own credentials; the answer is an access and a refresh token within the person's rights, with no consent page. A partner uses it at the person's sign-in, so nobody connects by hand. | Stator, Exciter, with the partner apps Dynamo registers |
+| `oauth.partner-tokens@1` | Armature, Stator | Authorization code flow with PKCE, refresh tokens and revocation, so a partner gets a person's token in one click with their consent; the token never exceeds the person's rights and shows in their list as a connected app. A partner app registered by itself stays pending until an administrator allows it. | Stator (of Armature), Rotor (by metadata, see below) |
+| `oauth.token-exchange@1` | Armature, Stator, Exciter | `POST /api/v1/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): `subject_token` is an access token of the shared Keycloak realm whose `azp` is the partner app's Keycloak client id and whose `aud` holds the offering tool's client; the app authenticates with its own credentials; the answer is an access and a refresh token within the person's rights, with no consent page. A partner uses it at the person's sign-in, so nobody connects by hand. | Stator, Exciter, with the partner apps Dynamo registers; Rotor (by metadata, see below) |
 | `webhooks.partner@1` | Armature | A partner creates, rotates and changes its own webhook endpoint once an administrator agrees, and never touches others. | Stator |
+
+Rotor relies on `mcp@1` and `webhooks@1` by name (of envelope version 2 it knows only Exciter's CloudEvents types), and checks them when an
+administrator adds a tool or asks it to check again: without `mcp@1` the tool
+cannot be added, without `webhooks@1` none of its events start a workflow. It
+reads partner OAuth from the tool's metadata instead of from a name: the
+protected resource metadata (RFC 9728) of the tool's `POST /mcp` names an
+authorization server whose metadata (RFC 8414) offers the authorization code
+flow with PKCE S256, which is what `oauth.partner-tokens@1` promises, and
+token exchange (RFC 8693) is used where that metadata lists it in
+`grant_types_supported`. `oauth.partner-tokens@1` and
+`oauth.token-exchange@1` above therefore describe what Rotor finds, and a
+tool that offers either keeps reporting the name too. Exciter serves the same flow (`POST /oauth/register`, authorize, token, revoke), with registered apps active at once, but does not report `oauth.partner-tokens@1` yet (Cloudster1/Exciter#481). Exciter lists an
+exchange of the identity provider's tokens that Rotor's open registration is
+never granted, so Rotor leaves it alone there.
 
 Every tool's personal access tokens are sent as `Authorization: Bearer
 <token>`; capabilities never require a shared service account.
@@ -167,10 +195,11 @@ Every tool's personal access tokens are sent as `Authorization: Bearer
 
 ## Where each tool stands
 
-All three answer `GET /api/v1/meta` with the capabilities above, send the
+Stator, Armature and Exciter answer `GET /api/v1/meta` with the capabilities above, send the
 versioned envelope, use the `dynamo` realm and release by tag to GHCR with a
-chart and a dispatch to Dynamo. None has tagged a release yet. What is left
-for these rules:
+chart and a dispatch to Dynamo. All three are at 0.3.0, as `versions.yaml`
+pins. Rotor, which Dynamo does not pin, has not released yet
+(Cloudster1/Rotor#167). What is left for these rules:
 
 - Exciter checks Stator for `page-remote-links` under any version; it should
   check `page-remote-links@1`.
