@@ -104,6 +104,32 @@ kroki:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }
 
+# OpenBao, where Rotor keeps people's refresh tokens and the tools' client
+# secrets: the Service openbao on port 8200, for Rotor's openbao.addr. Off
+# until Rotor joins the chart (#101). It unseals itself on every start with
+# a static key, writes an audit log of every request to its pod's log, and
+# has Kubernetes auth on, its ServiceAccount allowed to review tokens
+# (system:auth-delegator). On the first start it makes an admin token that
+# never expires, for Rotor's openbao.configure.tokenSecret.
+openbao:
+  enabled: false
+  # Rotor's chart runs the same version for its configure Job.
+  image: openbao/openbao:2.7.1
+  # A Secret made beforehand with the keys unseal-key (32 bytes, as 64 hex
+  # digits or base64) and admin-token (letters, digits, - and _, no dots).
+  # Empty: the chart makes <release>-openbao with random ones. Either way,
+  # back unseal-key up with the volume: OpenBao's data opens with it alone.
+  # The admin token is made on the first start only; changing it later in
+  # the Secret changes nothing in OpenBao.
+  existingSecret: ""
+  # Where OpenBao reaches this cluster's API server to review tokens.
+  kubernetesHost: https://kubernetes.default.svc
+  storage: 1Gi
+  storageClass: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
 connect:
   image:
     repository: ghcr.io/praetorianer777/dynamo-connect

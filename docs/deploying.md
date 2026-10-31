@@ -1,8 +1,9 @@
 # Deploying the suite
 
 One Helm release installs Stator, Armature and Exciter at the versions in
-`versions.yaml`, with a Keycloak holding the realm `dynamo`, one S3 store and
-one Kroki for diagrams. After every install and upgrade, the connect Job
+`versions.yaml`, with a Keycloak holding the realm `dynamo`, one S3 store,
+one Kroki for diagrams and, when turned on, the OpenBao Rotor needs. After
+every install and upgrade, the connect Job
 wires the three to each other. `helm test` then checks from inside the
 cluster that they are connected.
 
@@ -83,11 +84,61 @@ instead, and `--own-s3` makes one key pair per tool for an S3 of your own.
 | `keycloak.admin.existingSecret` | `username`, `password` | Keycloak's administrator |
 | `armatureAdmin.existingSecret` | `username` (the email), `password` | Armature's owner |
 | `objectStore.existingSecret` | `s3-access-key`, `s3-secret-key` | the bundled store's keys |
+| `openbao.existingSecret` | `unseal-key`, `admin-token` | OpenBao's static unseal key and its admin token (see "OpenBao, for Rotor") |
 | `<tool>.secrets.existingSecret`, with `<tool>.secrets.create: false` | `s3-access-key`, `s3-secret-key` | a tool's S3 keys |
 
 With the bundled store, each tool names the store's Secret, since the store
 has one key pair; the chart refuses anything else. With an S3 of your own
 (`objectStore.enabled: false`), each tool names its own.
+
+## OpenBao, for Rotor
+
+Rotor keeps people's refresh tokens and the tools' client secrets in an
+OpenBao it does not install itself. With `openbao.enabled` the chart runs
+one, the Service `openbao` on port 8200, so Rotor's chart takes
+`openbao.addr: http://openbao:8200`. It is off by default until Rotor joins
+the chart, which then turns it on. What it brings is what Rotor's chart
+expects of an OpenBao:
+
+- **It unseals itself.** A static seal key from the Secret opens it on
+  every start, so a restarted or rescheduled pod needs nobody. Whoever holds
+  that key and the volume holds every secret in it, so keep the Secret as
+  carefully as the volume and back both up together. The data opens with
+  that key alone: a lost key is lost data. The chart keeps the Secret and
+  the volume on `helm uninstall`.
+- **It keeps an audit log.** A file audit device writes every request and
+  answer to the pod's log, secrets hashed. Rotor refuses an OpenBao without
+  one.
+- **Kubernetes auth is on**, and OpenBao's ServiceAccount is bound to
+  `system:auth-delegator`, so it can have the cluster review the tokens
+  Rotor's api and worker sign in with.
+- **An admin token** that never expires, for Rotor's configure Job
+  (`openbao.configure.tokenSecret: { name: dynamo-openbao, key: admin-token }`).
+  OpenBao makes it on its first start, as an orphan root token with the id
+  the Secret holds, and revokes the first root token.
+
+Name a Secret made beforehand in `openbao.existingSecret`, with the keys
+`unseal-key` (32 bytes, as 64 hex digits or as base64) and `admin-token`
+(letters, digits, `-` and `_`). `scripts/create-secrets.sh` makes it as
+`dynamo-openbao` and never replaces one that exists. Without it, the chart
+makes `<release>-openbao` with random values and keeps them across
+upgrades. That needs `helm` itself: a GitOps tool that renders the chart
+without the cluster would make a new key on every sync, so with Argo CD or
+Flux always make the Secret beforehand.
+
+Both values take effect once. The admin token is made on the first start
+only: changing it in the Secret later changes nothing in OpenBao, and
+replacing it means creating and revoking tokens with `bao token` as the
+current one. The unseal key cannot simply be changed either; OpenBao
+rotates a static key with the previous key beside the new one, which the
+chart does not offer yet.
+
+The listener is plain HTTP inside the cluster, as Keycloak's Service is.
+`make test-chart` installs it, checks that it unseals itself, that the
+audit device is on and the admin token works, runs Rotor's own
+`deploy/openbao/init.sh` against it as Rotor's configure Job does, signs in
+as Rotor's api with Kubernetes auth, and restarts the pod to see it unseal
+itself again with everything kept.
 
 ## Sample data
 
