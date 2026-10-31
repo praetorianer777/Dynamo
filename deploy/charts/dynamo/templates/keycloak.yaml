@@ -2,6 +2,8 @@
 {{- $k := .Values.keycloak }}
 {{- $secret := include "dynamo.keycloakAdminSecret" . }}
 {{- $existing := .Values.oidc.existingSecret }}
+{{- /* Rotor's clients, which the realm holds before Rotor joins the chart. */}}
+{{- $rotor := list "rotor" "rotor-control-plane" }}
 {{- /* The canonical realm, with each tool's client sent back to that tool's address only. */}}
 {{- $realm := .Files.Get "files/realm.json" | fromJson }}
 {{- $clients := list }}
@@ -16,12 +18,22 @@
 {{- $_ := set $c "clientId" $client.id }}
 {{- /* From a Secret made beforehand, the realm holds a placeholder Keycloak fills in from its environment at import. */}}
 {{- $_ := set $c "secret" (ternary (printf "${DYNAMO_%s_CLIENT_SECRET}" (upper $tool)) $client.secret (not (empty $existing))) }}
+{{- else if and $existing (has $c.clientId $rotor) }}
+{{- /* Rotor has no address in the chart until it joins it, so only a Secret made beforehand changes its clients: their secrets. */}}
+{{- $_ := set $c "secret" (printf "${DYNAMO_%s_CLIENT_SECRET}" (upper $c.clientId | replace "-" "_")) }}
 {{- end }}
 {{- $clients = append $clients $c }}
 {{- end }}
 {{- $_ := set $realm "clients" $clients }}
 {{- if not $k.demoUsers }}
-{{- $_ := unset $realm "users" }}
+{{- /* The users Keycloak makes for service accounts hold those clients' roles, so they are not demo users. */}}
+{{- $accounts := list }}
+{{- range $u := $realm.users }}
+{{- if hasKey $u "serviceAccountClientId" }}
+{{- $accounts = append $accounts $u }}
+{{- end }}
+{{- end }}
+{{- $_ := set $realm "users" $accounts }}
 {{- end }}
 {{- if not $k.admin.existingSecret }}
 apiVersion: v1
@@ -80,8 +92,8 @@ spec:
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: password } }
             {{- if $existing }}
-            {{- range $t := list "stator" "armature" "exciter" }}
-            - name: DYNAMO_{{ upper $t }}_CLIENT_SECRET
+            {{- range $t := concat (list "stator" "armature" "exciter") $rotor }}
+            - name: DYNAMO_{{ upper $t | replace "-" "_" }}_CLIENT_SECRET
               valueFrom: { secretKeyRef: { name: {{ $existing }}, key: {{ $t }}-client-secret } }
             {{- end }}
             {{- end }}

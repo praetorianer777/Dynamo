@@ -73,7 +73,8 @@ if [[ -n "${DYNAMO_EXISTING_SECRETS:-}" ]]; then
     for kv in "$@"; do args+=(--from-literal="$kv"); made+=("${kv#*=}"); done
     kubectl -n "$NS" create secret generic "$name" "${args[@]}" >/dev/null
   }
-  mk test-oidc-clients "stator-client-secret=$(gen)" "armature-client-secret=$(gen)" "exciter-client-secret=$(gen)"
+  mk test-oidc-clients "stator-client-secret=$(gen)" "armature-client-secret=$(gen)" "exciter-client-secret=$(gen)" \
+    "rotor-client-secret=$(gen)" "rotor-control-plane-client-secret=$(gen)"
   mk test-keycloak-admin username=admin "password=$(gen)"
   mk test-armature-owner username=owner@armature.dynamo "password=$(gen)"
   mk test-s3 s3-access-key=dynamo "s3-secret-key=$(gen)"

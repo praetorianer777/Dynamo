@@ -7,13 +7,17 @@ JQ := docker run --rm -i ghcr.io/jqlang/jq:1.7.1
 
 # The canonical realm without the demo users, each tool's client sent back to
 # that tool's address only and holding its secret as a placeholder, which
-# Keycloak fills in from its environment when it imports the realm.
-REALM_SERVER_FILTER := del(.users) | .clients |= map( \
-	if (.clientId | IN("stator", "armature", "exciter")) then \
-		(.clientId | ascii_upcase) as $$t \
+# Keycloak fills in from its environment when it imports the realm. The users
+# Keycloak makes for service accounts stay, since they hold those clients'
+# roles; a client without addresses, such as rotor-control-plane, keeps none.
+REALM_SERVER_FILTER := .users |= map(select(has("serviceAccountClientId"))) | .clients |= map( \
+	if (.clientId | IN("stator", "armature", "exciter", "rotor", "rotor-control-plane")) then \
+		(.clientId | ascii_upcase | gsub("-"; "_")) as $$t \
 		| .secret = "$${DYNAMO_\($$t)_CLIENT_SECRET}" \
-		| .redirectUris = ["$${\($$t)_URL}/*"] \
-		| .webOrigins = ["$${\($$t)_URL}"] \
+		| if has("redirectUris") then \
+			.redirectUris = ["$${\($$t)_URL}/*"] \
+			| .webOrigins = ["$${\($$t)_URL}"] \
+		else . end \
 	else . end)
 
 .PHONY: realm-server
