@@ -29,7 +29,7 @@ say() { echo "🧪 $*"; }
 pin() { sed -nE "s/^$1: *\"?([^\" ]+)\"?.*/\1/p" "$2"; }
 
 # alice administers all three, bob and carol are members; dave is let in by
-# his realm group alone, which the seed maps.
+# his realm group alone, which the seed grants before he signs in.
 export DYNAMO_MEMBERS="alice@suite.test=admin,bob@suite.test=member,carol@suite.test=member"
 
 # at <versions file>: the stack and the checks run the versions it names.
