@@ -79,7 +79,7 @@ instead, and `--own-s3` makes one key pair per tool for an S3 of your own.
 
 | Value | Secret's keys | Holds |
 | --- | --- | --- |
-| `oidc.existingSecret` | `stator-client-secret`, `armature-client-secret`, `exciter-client-secret` | the OIDC clients' secrets; the bundled Keycloak imports them from its environment |
+| `oidc.existingSecret` | `stator-client-secret`, `armature-client-secret`, `exciter-client-secret`, and with the bundled Keycloak `rotor-client-secret` and `rotor-control-plane-client-secret` | the OIDC clients' secrets; the bundled Keycloak imports them from its environment, Rotor's two among them, which its realm holds before Rotor joins the chart |
 | `keycloak.admin.existingSecret` | `username`, `password` | Keycloak's administrator |
 | `armatureAdmin.existingSecret` | `username` (the email), `password` | Armature's owner |
 | `objectStore.existingSecret` | `s3-access-key`, `s3-secret-key` | the bundled store's keys |

@@ -51,6 +51,34 @@ A Keycloak only the tools reach privately needs no extra setting: the tools'
 outbound guards let the issuer's host through, as `mk/stack.mk` derives it
 from `OIDC_ISSUER` or `OIDC_BACKCHANNEL`.
 
+## Rotor's clients
+
+[Rotor](https://github.com/Cloudster1/Rotor) joins the suite as a fourth tool.
+It does not run in the stack yet, but the realm already holds what it signs
+in with, so Rotor's own copy of the realm is this one:
+
+- **`rotor`**, a confidential client like the others: the standard flow with
+  PKCE S256 and the group membership mapper. Its service account holds
+  `realm-management`'s `view-users`, so Rotor can look people up. Keycloak
+  signs people out of Rotor through the back channel, at
+  `http://rotor-api:8080/api/v1/auth/oidc/backchannel-logout`, the name
+  Rotor's api has on the network `suite`.
+- **`rotor-control-plane`**, a service account only, which no person signs in
+  with. An audience mapper puts `openbao` into its access tokens, so OpenBao
+  accepts the control plane's login; it is `included.custom.audience`, since
+  OpenBao is no client of the realm.
+- The group **`rotor-administrators`**, whose members administer Rotor. The
+  demo realm puts alice in it.
+
+The users Keycloak makes for both service accounts are part of the realm, so
+the server's copy and the chart's without demo users keep them. On a server,
+`deploy/.env` holds `ROTOR_URL`, the only address `rotor` sends people back
+to, and the clients' secrets `ROTOR_OIDC_CLIENT_SECRET` and
+`ROTOR_CONTROL_PLANE_OIDC_CLIENT_SECRET`, which `compose-secrets.sh`
+generates. The chart takes them from `oidc.existingSecret`, as
+`rotor-client-secret` and `rotor-control-plane-client-secret`, when one is
+named.
+
 ## Connecting people at sign-in
 
 The tools connect people to each other at sign-in by token exchange (see

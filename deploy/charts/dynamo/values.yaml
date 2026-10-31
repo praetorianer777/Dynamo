@@ -53,7 +53,9 @@ oidc:
     exciter: { id: exciter, secret: exciter-dev-secret }
   # A Secret made beforehand with the keys stator-client-secret,
   # armature-client-secret and exciter-client-secret, which then hold the
-  # clients' secrets instead of the values above; the ids stay above.
+  # clients' secrets instead of the values above; the ids stay above. With the
+  # bundled Keycloak it also holds rotor-client-secret and
+  # rotor-control-plane-client-secret, for Rotor's clients in its realm.
   existingSecret: ""
 
 # Who of the realm is let into all three before their first sign-in. Keep

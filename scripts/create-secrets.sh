@@ -50,7 +50,8 @@ secret() { # name key=value...
 
 echo "== OIDC clients" >&2
 oidc=()
-for t in stator armature exciter; do
+# Rotor's two clients are in the bundled realm before Rotor joins the chart.
+for t in stator armature exciter rotor rotor-control-plane; do
   oidc+=("$t-client-secret=$(ask_secret "  $t's client secret")")
 done
 echo "== Keycloak's administrator" >&2
