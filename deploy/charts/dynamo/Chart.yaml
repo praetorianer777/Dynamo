@@ -4,8 +4,8 @@ description: Stator, Armature and Exciter at the versions Dynamo tested together
 type: application
 # The suite's release (YYYY.MM.N once #3 tags them); appVersion is the
 # dynamo-connect image's tag.
-version: 0.1.2
-appVersion: "0.1.2"
+version: 0.3.0
+appVersion: "0.3.0"
 # One dependency per tool at the version versions.yaml pins; tests/test-chart.sh
 # refuses any other.
 dependencies:
